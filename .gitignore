@@ -34,3 +34,6 @@ eval/runs/*
 
 # OS
 .DS_Store
+
+# LaTeX paper source (kept local, not pushed)
+research-paper-synthesis-graph.tex
