@@ -13,8 +13,8 @@ what's still open?"*
 > end-to-end by a calibrated LLM judge.** The agentic planner–critic loop and the four
 > extensions come in Iterations 2–3.
 
+[![CI](https://github.com/jask7075/Research-Paper-Synthesis-Graph/actions/workflows/ci.yml/badge.svg)](https://github.com/jask7075/Research-Paper-Synthesis-Graph/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Tests](https://img.shields.io/badge/tests-19%2F19%20passing-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 **Status — Iteration 1 (complete):** the ingestion → chunk → extract → store pipeline plus
