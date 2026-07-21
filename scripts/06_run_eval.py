@@ -10,7 +10,7 @@ Writes eval/runs/<timestamp>_<system>/{answers,traces,scores}.jsonl + report.md
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from rpsg.config import get_settings
 from rpsg.eval.gold_schema import load_gold
@@ -55,7 +55,7 @@ def main() -> None:
         top_k=args.top_k,
     )
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = settings.paths.eval_runs / f"{stamp}_{args.system}"
     run_system(system, gold, run_dir, use_judge=not args.no_judge)
     log.info("run complete -> %s", run_dir)

@@ -82,6 +82,38 @@ def _sentence_spans(text: str) -> list[tuple[int, int]]:
     return spans
 
 
+def _emit_chunk(
+    chunks: list[Chunk],
+    paper_id: str,
+    section: Section,
+    accumulated: list[tuple[int, int]],
+    corpus: str,
+) -> None:
+    """Append one chunk covering the accumulated sentence spans (no-op if empty).
+
+    Extracted to a module-level helper (rather than a nested closure) so it takes its
+    inputs as explicit parameters instead of closing over the loop's mutable state.
+    """
+    if not accumulated:
+        return
+    start, end = accumulated[0][0], accumulated[-1][1]
+    text = section.text[start:end].strip()
+    if not text:
+        return
+    chunks.append(
+        Chunk(
+            id=f"{paper_id}::{section.section_type}::{start}-{end}",
+            paper_id=paper_id,
+            text=text,
+            section_title=section.title,
+            section_type=section.section_type,
+            char_start=start,
+            char_end=end,
+            corpus=corpus,
+        )
+    )
+
+
 def chunk_sections(
     paper_id: str,
     sections: list[Section],
@@ -109,38 +141,17 @@ def chunk_sections(
         current: list[tuple[int, int]] = []
         current_tokens = 0
 
-        def flush() -> None:
-            nonlocal current, current_tokens
-            if not current:
-                return
-            start, end = current[0][0], current[-1][1]
-            text = section.text[start:end].strip()
-            if text:
-                chunks.append(
-                    Chunk(
-                        id=f"{paper_id}::{section.section_type}::{start}-{end}",
-                        paper_id=paper_id,
-                        text=text,
-                        section_title=section.title,
-                        section_type=section.section_type,
-                        char_start=start,
-                        char_end=end,
-                        corpus=corpus,
-                    )
-                )
-
         for span in spans:
             span_tokens = approx_tokens(section.text[span[0] : span[1]])
 
             # A single sentence longer than the target becomes its own chunk.
             if span_tokens >= target_tokens and not current:
-                current = [span]
-                flush()
+                _emit_chunk(chunks, paper_id, section, [span], corpus)
                 current, current_tokens = [], 0
                 continue
 
             if current and current_tokens + span_tokens > target_tokens:
-                flush()
+                _emit_chunk(chunks, paper_id, section, current, corpus)
                 # Carry back trailing sentences up to `overlap_tokens` for continuity.
                 carry: list[tuple[int, int]] = []
                 carry_tokens = 0
@@ -155,7 +166,7 @@ def chunk_sections(
             current.append(span)
             current_tokens += span_tokens
 
-        flush()
+        _emit_chunk(chunks, paper_id, section, current, corpus)
         if not respect_sections:
             # Sections were meant to be merged; this branch exists only so the flag is
             # honest. Merging is not recommended — see the module docstring.

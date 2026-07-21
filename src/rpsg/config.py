@@ -32,7 +32,7 @@ class Paths(BaseModel):
     kuzu_db: Path = Path("data/processed/rpsg.kuzu")
     vector_index: Path = Path("data/processed/vectors.faiss")
 
-    def resolved(self) -> "Paths":
+    def resolved(self) -> Paths:
         """Return a copy with every path made absolute against the project root."""
         return Paths(**{k: (PROJECT_ROOT / v) for k, v in self.model_dump().items()})
 

@@ -53,6 +53,9 @@ src = ["src", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
+# UP042: keep the explicit `(str, Enum)` form. ruff's StrEnum rewrite is an *unsafe* fix
+# (str() semantics differ), and the explicit base classes are intentional here.
+ignore = ["UP042"]
 
 [tool.mypy]
 python_version = "3.11"
