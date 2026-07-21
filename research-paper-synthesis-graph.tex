@@ -1,0 +1,93 @@
+\documentclass[11pt]{article}
+
+% ----------------------------------------------------------------------
+%  Research Paper Synthesis Graph -- shareable notes
+% ----------------------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{xcolor}
+
+\definecolor{linkblue}{HTML}{1A5FB4}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=linkblue,
+  urlcolor=linkblue,
+  citecolor=linkblue,
+  pdftitle={Research Paper Synthesis Graph},
+  pdfauthor={},
+}
+
+\setlist{itemsep=2pt, topsep=4pt}
+
+\title{\vspace{-2em}\textbf{Research Paper Synthesis Graph}}
+\date{}
+\author{}
+
+\begin{document}
+\maketitle
+\vspace{-3em}
+
+% ----------------------------------------------------------------------
+\section{Why Graph RAG?}
+
+Because the ``research problem'' is relational. If we ask a lexical /
+vector RAG system \emph{``what is this paper about''}, it answers well.
+But when we ask \emph{``what methods have been tried on problem $X$, and
+which of them were limited by $Y$?''}~\cite{edge2024graphrag}, the answer
+lives in the relationships \emph{between} papers, methods, and
+limitations --- not in any single passage. A graph captures those edges
+explicitly, so multi-hop and query-focused questions become traversals
+rather than guesses.
+
+% ----------------------------------------------------------------------
+\section{Terms}
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{GROBID} --- \emph{GeneRation Of BIbliographic Data}. An
+        open-source machine-learning tool that extracts and structures
+        information from scholarly documents, primarily PDFs.
+  \item \textbf{Cypher} --- a query language for graph databases (e.g.\
+        Neo4j).
+  \item \textbf{Kuzu} --- an embedded graph database. Runs in-process,
+        stores the graph in a local directory, and speaks Cypher --- much
+        like SQLite does for relational data.
+  \item \textbf{KuzuGraphStore} --- the adapter that lets a RAG pipeline
+        read from and write to a Kuzu graph.
+\end{enumerate}
+
+% ----------------------------------------------------------------------
+\section{Pipeline (sketch)}
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Ingest} --- parse PDFs with GROBID into structured
+        metadata (title, authors, references, sections).
+  \item \textbf{Build graph} --- create nodes (papers, authors, methods,
+        problems) and edges (\texttt{CITES}, \texttt{USES\_METHOD},
+        \texttt{LIMITED\_BY}) inside Kuzu.
+  \item \textbf{Query} --- express research questions as Cypher
+        traversals over the synthesis graph.
+  \item \textbf{Synthesize} --- feed retrieved subgraphs to the LLM for
+        query-focused summarization.
+\end{enumerate}
+
+% ----------------------------------------------------------------------
+\section*{Citations}
+\addcontentsline{toc}{section}{Citations}
+
+\begin{thebibliography}{9}
+
+\bibitem{edge2024graphrag}
+Edge et al.,
+\emph{``From Local to Global: A Graph RAG Approach to Query-Focused
+Summarization''}.
+Microsoft Research, 2024.
+\href{https://arxiv.org/abs/2404.16130}{arXiv:2404.16130}.
+
+\end{thebibliography}
+
+\end{document}

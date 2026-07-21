@@ -1,0 +1,53 @@
+# Runtime configuration. Secrets come from .env, not here.
+# Loaded by rpsg.config.Settings; env vars (RPSG_*) override these values.
+
+paths:
+  data_raw: data/raw
+  data_interim: data/interim
+  data_processed: data/processed
+  data_external: data/external
+  eval_gold: eval/gold
+  eval_runs: eval/runs
+  kuzu_db: data/processed/rpsg.kuzu
+  vector_index: data/processed/vectors.faiss
+
+models:
+  # One-time offline corpus extraction — frontier-small API model (your quality ceiling).
+  extraction_model: claude-haiku-4-5
+  # Judge + synthesis. Use a DIFFERENT family/tier from anything you also generate with,
+  # to avoid self-preference bias in the judge (see rpsg.eval.calibration).
+  judge_model: claude-opus-4-8
+  synthesis_model: claude-opus-4-8
+  # Query-time local inference (Iteration 2 onward). Served via vLLM; not used in the Iteration 1 spine.
+  local_inference_model: Qwen/Qwen2.5-14B-Instruct-AWQ
+
+embeddings:
+  # SPECTER2 is tuned for scientific papers; swap for a general strong embedder if desired.
+  model_name: allenai/specter2_base
+  dim: 768
+  batch_size: 32
+
+chunking:
+  target_tokens: 512        # per chunk (approximate; see rpsg.ingestion.chunking)
+  overlap_tokens: 64
+  respect_sections: true    # never split a chunk across a section boundary
+
+ingestion:
+  s2_fields:                # requested from the Semantic Scholar Graph API
+    - paperId
+    - externalIds
+    - title
+    - abstract
+    - year
+    - venue
+    - authors
+    - references.paperId
+    - openAccessPdf
+  max_references_per_paper: 200
+
+eval:
+  # Deterministic pass/fail thresholds used in reports.
+  judge_temperature: 0.0
+  calibration:
+    min_quadratic_kappa: 0.6   # below this, the judge is untrusted on that criterion
+    length_bias_alpha: 0.05    # significance level for the length-bias regression check

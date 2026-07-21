@@ -1,0 +1,39 @@
+# LLM-as-judge configuration. The prompt template lives in rpsg.eval.judge (versioned in
+# code); this file pins the model + the criteria + their 1-5 anchors so a run is reproducible.
+
+judge:
+  model: claude-opus-4-8
+  temperature: 0.0
+  prompt_version: v1
+
+criteria:
+  coverage:
+    description: "Does the answer address every gold facet?"
+    anchors:
+      1: "Addresses one facet."
+      3: "Addresses most facets."
+      5: "Addresses all facets substantively."
+  attribution:
+    description: "Is each claim tied to a specific paper/edge in the retrieved context?"
+    anchors:
+      1: "Unsourced assertions."
+      3: "Mostly sourced."
+      5: "Every claim traceable to provided context."
+  hedging_accuracy:
+    description: "Does stated confidence match evidence strength?"
+    anchors:
+      1: "Confident where evidence is thin, or hedged where evidence is strong."
+      3: "Roughly calibrated."
+      5: "Confidence tracks evidence precisely."
+  refutation_handling:
+    description: "Are known contradictions surfaced rather than suppressed?"
+    anchors:
+      1: "Contradiction ignored / only one side given."
+      3: "Contradiction mentioned but not reconciled."
+      5: "Both sides presented and reconciled."
+  synthesis:
+    description: "Does it combine multiple sources into a relational picture, or just quote one?"
+    anchors:
+      1: "Single-source paraphrase."
+      3: "Lists several sources without integrating."
+      5: "Genuine multi-source synthesis."

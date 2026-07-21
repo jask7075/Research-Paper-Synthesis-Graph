@@ -1,0 +1,1 @@
+{"paper_id": "PLACEHOLDER_F", "gpu_type": "A100", "gpu_count": 8, "quantum_vendor": "IBM", "qubit_count": 127, "software": [{"name": "PennyLane", "version": "0.35"}], "dataset_access": "open", "note": "Extension #4 ground truth: objective, checkable facts. This is your most defensible eval — exact/normalized-match accuracy per field over ~50 held-out papers."}

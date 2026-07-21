@@ -1,0 +1,34 @@
+# The systems under test. Iteration 1 must produce a scored `vector_fulltext` run.
+# `typed_graph` and the agentic loop arrive in Iterations 2–3 (listed here so the harness
+# is stable across the whole project).
+
+systems:
+  vector_abstract:
+    kind: vector
+    corpus: abstract
+    top_k: 20
+    reranker: null
+    note: "Floor. Shows the abstract-only ceiling."
+
+  vector_fulltext:            # <-- the real baseline to beat
+    kind: vector
+    corpus: fulltext
+    top_k: 20
+    reranker: cross-encoder   # optional; set null to disable
+    note: "Essential baseline. If the typed graph can't beat this on relational queries, the thesis fails."
+
+  citation_graph:
+    kind: graph
+    typed_edges: false        # untyped `cites` edges only, from S2 references (free)
+    max_hops: 2
+    note: "Isolates *typing* from *graph-ness* — the ablation that proves typed edges matter."
+
+  typed_graph:                # Iteration 2 onward
+    kind: graph
+    typed_edges: true
+    max_hops: 3
+    note: "The system. Not built in the Iteration 1 spine."
+
+# Report scores broken down by query_type — the relational subset is where the graph earns
+# its complexity; a natural mix averages that away.
+report_by_query_type: true

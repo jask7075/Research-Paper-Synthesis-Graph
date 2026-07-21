@@ -1,0 +1,36 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data (keep the folders via .gitkeep, ignore contents)
+data/raw/*
+data/interim/*
+data/processed/*
+data/external/*
+!data/**/.gitkeep
+
+# Eval run outputs (keep the gold set, ignore generated runs)
+eval/runs/*
+!eval/runs/.gitkeep
+
+# Local stores
+*.kuzu/
+*.faiss
+*.duckdb
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
