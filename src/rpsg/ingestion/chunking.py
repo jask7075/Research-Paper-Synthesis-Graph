@@ -31,7 +31,16 @@ _SECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(introduction|background)", re.I), "introduction"),
     (re.compile(r"\b(related work|prior work)", re.I), "related_work"),
     (re.compile(r"\b(method|approach|model|architecture|algorithm|setup)", re.I), "method"),
-    (re.compile(r"\b(experiment|result|evaluation|ablation|benchmark)", re.I), "results"),
+    (
+        # `simulation`/`numerical` included because theory and physics papers title
+        # their evaluation section "Numerical simulations" rather than "Results",
+        # which otherwise falls through to `other` and loses Dataset/evaluated_on
+        # routing (see rpsg.extraction.prompts).
+        re.compile(
+            r"\b(experiment|result|evaluation|ablation|benchmark|simulation|numerical)", re.I
+        ),
+        "results",
+    ),
     (re.compile(r"\b(limitation|threats to validity|future work)", re.I), "limitations"),
     (re.compile(r"\b(discussion|analysis)", re.I), "discussion"),
     (re.compile(r"\b(conclusion|summary)", re.I), "conclusion"),

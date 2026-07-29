@@ -27,12 +27,19 @@ class FaissVectorStore(VectorStore):
         self._index = None  # lazy faiss index
         self._chunks: list[Chunk] = []
 
-    def _ensure_index(self) -> None:
+    def _ensure_index(self):  # noqa: ANN202 - faiss is untyped; returns a faiss index
+        """Build the index on first use and return it.
+
+        Returning the index (rather than only assigning it) is what lets callers use
+        it without a `type: ignore` — the previous shape forced one at every call
+        site, and those ignores had drifted to the wrong error code.
+        """
         if self._index is None:
             import faiss
 
             # Inner-product on L2-normalized vectors == cosine similarity.
             self._index = faiss.IndexFlatIP(self.dim)
+        return self._index
 
     @staticmethod
     def _normalize(mat: np.ndarray) -> np.ndarray:
@@ -43,19 +50,19 @@ class FaissVectorStore(VectorStore):
     def add(self, chunks: list[Chunk], embeddings: list[list[float]]) -> None:
         if not chunks:
             return
-        self._ensure_index()
+        index = self._ensure_index()
         mat = self._normalize(np.asarray(embeddings, dtype="float32"))
-        self._index.add(mat)  # type: ignore[union-attr]
+        index.add(mat)
         self._chunks.extend(chunks)
 
     def search(self, query_embedding: list[float], top_k: int, corpus: str) -> list[SearchHit]:
-        self._ensure_index()
+        index = self._ensure_index()
         q = self._normalize(np.asarray([query_embedding], dtype="float32"))
         # Over-fetch, then filter by corpus (flat index has no metadata filter).
         k = min(len(self._chunks), max(top_k * 5, top_k))
         if k == 0:
             return []
-        scores, idxs = self._index.search(q, k)  # type: ignore[union-attr]
+        scores, idxs = index.search(q, k)
         hits: list[SearchHit] = []
         for score, idx in zip(scores[0], idxs[0], strict=False):
             if idx < 0:

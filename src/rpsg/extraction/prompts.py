@@ -55,6 +55,15 @@ _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
         [NodeType.LIMITATION],
         [],
     ),
+    # Most papers have no `Limitations` or `Discussion` heading at all and state
+    # their caveats and open problems in the conclusion instead. Without this
+    # entry `conclusion` fell through to the default types and `Limitation` was
+    # unreachable for such papers — i.e. the relational core of the thesis
+    # ("which methods were limited by Y") had no data to draw on.
+    "conclusion": (
+        [NodeType.CLAIM, NodeType.LIMITATION, NodeType.PROBLEM],
+        [EdgeType.ADDRESSES],
+    ),
     "appendix": (  # where reproducibility facts hide (extension #4)
         [NodeType.HARDWARE, NodeType.SOFTWARE, NodeType.REPRO_ARTIFACT, NodeType.DATASET],
         [EdgeType.REQUIRES, EdgeType.USES, EdgeType.PROVIDES, EdgeType.EVALUATED_ON],

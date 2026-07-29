@@ -19,7 +19,7 @@ what's still open?"*
 
 **Status — Iteration 1 (complete):** the ingestion → chunk → extract → store pipeline plus
 the eval-first harness. The deterministic core (schema, chunking, metrics, calibration,
-store interfaces) is verified by 19/19 unit tests. Wire in `ANTHROPIC_API_KEY` /
+store interfaces) is verified by 19/19 unit tests. Wire in `OPENAI_API_KEY` /
 `S2_API_KEY` to run the LLM stages. Iterations 2–3 add the typed graph, the planner–critic
 loop, and the four extensions.
 
@@ -37,9 +37,10 @@ loop, and the four extensions.
 4. **Build the base corpus with an API model.** Corpus extraction is a *one-time offline
    batch* — the quality gap between a local 8B and a frontier-small API model is exactly
    your system's ceiling. Local models are reserved for query-time inference.
-5. **Portability by interface.** Graph / vector / LLM sit behind interfaces
-   (`rpsg.stores.base`) so Phase 2 (Neo4j AuraDB + Qdrant + Claude API) is a config swap,
-   not a rewrite.
+5. **Portability by interface.** Graph and vector stores sit behind `rpsg.stores.base`;
+   chat models sit behind `rpsg.llm.ChatClient`. Provider is inferred from the model id,
+   so switching LLM vendor is a one-line edit in `configs/settings.yaml` and Phase 2
+   (Neo4j AuraDB + Qdrant) is a config swap, not a rewrite.
 
 ## Layout
 
@@ -49,6 +50,7 @@ data/               raw → interim → processed  (git-ignored; cookiecutter-ds
 src/rpsg/
   config.py         pydantic-settings; single source of runtime config
   ingestion/        Semantic Scholar / ArXiv fetch, PDF→sections, section-aware chunking
+  llm/              provider-neutral ChatClient (OpenAI / Anthropic adapters)
   extraction/       frozen tiered schema + prompts + API-based extractor
   stores/           GraphStore / VectorStore interfaces + Kuzu / local adapters
   retrieval/        baselines (vector-abstract, vector-fulltext)
@@ -67,7 +69,7 @@ uv venv && source .venv/bin/activate
 uv pip install -e ".[dev,vector]"
 
 # 2. Secrets
-cp .env.example .env       # then fill ANTHROPIC_API_KEY, S2_API_KEY
+cp .env.example .env       # then fill OPENAI_API_KEY, S2_API_KEY
 
 # 3. Optional services (only needed for real PDF parsing)
 #    GROBID as a docker service — see Makefile `grobid` target.
@@ -79,18 +81,27 @@ make test
 python scripts/01_fetch_corpus.py --query "variational quantum eigensolver" --limit 50
 python scripts/02_parse_pdfs.py
 python scripts/03_chunk.py
-python scripts/04_extract.py            # needs ANTHROPIC_API_KEY
+python scripts/04_extract.py            # needs OPENAI_API_KEY
 python scripts/05_build_stores.py
 
-# 6. Score the vector-fulltext baseline against the gold set (needs ANTHROPIC_API_KEY)
+# 6. Score the vector-fulltext baseline against the gold set (needs OPENAI_API_KEY)
 python scripts/06_run_eval.py --system vector_fulltext
 ```
 
 ## Models
 
-Extraction (one-time batch): `claude-haiku-4-5`. Judge / synthesis: `claude-opus-4-8`.
-Query-time local inference (Iteration 2 onward): Qwen2.5-14B-Instruct via vLLM. All configurable in
-`configs/settings.yaml`.
+Extraction (one-time batch, the bulk-call stage): `gpt-5.4-nano`. Judge / synthesis:
+`gpt-5.4-mini`. Embeddings: `allenai/specter2_base` locally via sentence-transformers —
+no API cost per chunk. Query-time local inference (Iteration 2 onward):
+Qwen2.5-14B-Instruct via vLLM. All configurable in `configs/settings.yaml`.
+
+Provider is inferred from the model id, so pointing the system at a different vendor is a
+one-line change — swap `gpt-5.4-mini` for `claude-opus-4-8` and `rpsg.llm.get_chat_client`
+routes to the Anthropic adapter instead. Set `models.provider` to override the inference.
+
+Caveat worth knowing: judge and synthesis currently share a family, so self-preference
+bias in the judge is unmitigated. That's fine while no comparative claim rests on the
+judge scores — revisit before reporting an ablation number.
 
 ## Status
 

@@ -6,7 +6,7 @@ Layering (lowest → highest precedence):
 Usage:
     from rpsg.config import get_settings
     settings = get_settings()
-    settings.models.judge_model  # "claude-opus-4-8"
+    settings.models.judge_model  # "gpt-5.4-mini"
 """
 
 from __future__ import annotations
@@ -38,16 +38,25 @@ class Paths(BaseModel):
 
 
 class Models(BaseModel):
-    extraction_model: str = "claude-haiku-4-5"
-    judge_model: str = "claude-opus-4-8"
-    synthesis_model: str = "claude-opus-4-8"
+    extraction_model: str = "gpt-5.4-nano"
+    judge_model: str = "gpt-5.4-mini"
+    synthesis_model: str = "gpt-5.4-mini"
     local_inference_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
+    #: Override provider routing. None = infer from the model id (see rpsg.llm).
+    provider: str | None = None
 
 
 class Embeddings(BaseModel):
     model_name: str = "allenai/specter2_base"
     dim: int = 768
     batch_size: int = 32
+
+
+class Extraction(BaseModel):
+    #: Nodes/edges the extractor reports below this confidence are dropped rather than
+    #: written to the curated layer. An edge is also dropped when either endpoint was
+    #: dropped, so raising this prunes the graph transitively.
+    min_confidence: float = 0.5
 
 
 class Chunking(BaseModel):
@@ -62,7 +71,6 @@ class Calibration(BaseModel):
 
 
 class Eval(BaseModel):
-    judge_temperature: float = 0.0
     calibration: Calibration = Field(default_factory=Calibration)
 
 
@@ -77,6 +85,7 @@ class Settings(BaseSettings):
     )
 
     # Secrets (from .env / env; not in settings.yaml)
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     s2_api_key: str | None = Field(default=None, alias="S2_API_KEY")
     grobid_url: str = "http://localhost:8070"
@@ -86,6 +95,7 @@ class Settings(BaseSettings):
     paths: Paths = Field(default_factory=Paths)
     models: Models = Field(default_factory=Models)
     embeddings: Embeddings = Field(default_factory=Embeddings)
+    extraction: Extraction = Field(default_factory=Extraction)
     chunking: Chunking = Field(default_factory=Chunking)
     eval: Eval = Field(default_factory=Eval)
 

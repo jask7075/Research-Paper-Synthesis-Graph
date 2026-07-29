@@ -12,12 +12,18 @@ paths:
   vector_index: data/processed/vectors.faiss
 
 models:
-  # One-time offline corpus extraction — frontier-small API model (your quality ceiling).
-  extraction_model: claude-haiku-4-5
-  # Judge + synthesis. Use a DIFFERENT family/tier from anything you also generate with,
-  # to avoid self-preference bias in the judge (see rpsg.eval.calibration).
-  judge_model: claude-opus-4-8
-  synthesis_model: claude-opus-4-8
+  # Provider is inferred from the model id (gpt-* -> OpenAI, claude-* -> Anthropic).
+  # Set this to pin it explicitly; see rpsg.llm.get_chat_client.
+  provider: null
+
+  # One-time offline corpus extraction. This is the bulk-call stage (one call per
+  # paper section), so it gets the cheapest model.
+  extraction_model: gpt-5.4-nano
+  # Judge + synthesis. NOTE: same family/tier as each other, so self-preference
+  # bias in the judge is NOT mitigated. Acceptable while no comparative claim is
+  # being made off the judge scores; revisit before reporting an ablation number.
+  judge_model: gpt-5.4-mini
+  synthesis_model: gpt-5.4-mini
   # Query-time local inference (Iteration 2 onward). Served via vLLM; not used in the Iteration 1 spine.
   local_inference_model: Qwen/Qwen2.5-14B-Instruct-AWQ
 
@@ -26,6 +32,11 @@ embeddings:
   model_name: allenai/specter2_base
   dim: 768
   batch_size: 32
+
+extraction:
+  # Drop low-confidence nodes/edges instead of writing them to the curated layer.
+  # Edges whose endpoints were dropped go too. 0.0 disables the gate.
+  min_confidence: 0.5
 
 chunking:
   target_tokens: 512        # per chunk (approximate; see rpsg.ingestion.chunking)
@@ -47,7 +58,6 @@ ingestion:
 
 eval:
   # Deterministic pass/fail thresholds used in reports.
-  judge_temperature: 0.0
   calibration:
     min_quadratic_kappa: 0.6   # below this, the judge is untrusted on that criterion
     length_bias_alpha: 0.05    # significance level for the length-bias regression check

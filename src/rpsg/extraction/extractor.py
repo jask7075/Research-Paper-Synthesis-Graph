@@ -1,12 +1,13 @@
 """API-based corpus extractor (the one-time offline batch).
 
 Why API, not a local 8B: extraction reliability IS the system's quality ceiling, and the
-base-corpus build is a one-time batch. A frontier-small API model (`claude-haiku-4-5`)
-extracts materially better than a local 8-14B for ~$20-45 over 2,000 papers — cheap
-insurance on the number everything downstream inherits. The local model is reserved for
-the Iteration-2-onward query-time graph-growth loop.
+base-corpus build is a one-time batch. A small hosted model extracts materially better
+than a local 8-14B for a few dollars over a 200-paper corpus — cheap insurance on the
+number everything downstream inherits. The local model is reserved for the
+Iteration-2-onward query-time graph-growth loop.
 
-This module extracts per (paper, section) with Anthropic structured outputs, then
+This module extracts per (paper, section) with schema-constrained structured outputs
+(provider-neutral, via `rpsg.llm`), then
 normalizes surface names into stable node ids and stitches edges by name. Entity
 resolution (canonicalizing "PPO" == "Proximal Policy Optimization" across papers) is a
 separate Iteration-2 step; here we id nodes deterministically from their normalized name so
@@ -29,7 +30,8 @@ from rpsg.extraction.schema import (
     NodeType,
     SourceLayer,
 )
-from rpsg.ingestion.chunking import Section
+from rpsg.ingestion.chunking import DROP_SECTION_TYPES, Section
+from rpsg.llm import get_chat_client
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -42,8 +44,49 @@ def _node_id(node_type: NodeType, name: str) -> str:
     return f"{node_type.value.lower()}:{slug}"
 
 
+def _coerce_attr(value: object) -> str | int | float | bool | None:
+    """Flatten one attr value into the scalar space `Node.attrs` declares.
+
+    Models answer with nested values in practice — an observed `attrs` was
+    `{"extensions": ["excited states", "error mitigation"]}`. That is real
+    information, so it is JSON-encoded rather than dropped, and `attrs` stays
+    flat and scalar-valued as the graph store and per-tier reporting assume.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _parse_attrs(raw: object) -> dict:
+    """`attrs` arrives as a JSON string — see the note in `rpsg.extraction.schema`.
+
+    A dict is also accepted so extraction files written before that change still
+    load, and a malformed string degrades to `{}` rather than killing the paper.
+    """
+    parsed: object = raw
+    if isinstance(raw, str):
+        if not raw.strip():
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k): _coerce_attr(v) for k, v in parsed.items()}
+
+
+def _coerce_confidence(raw: object) -> float:
+    """Clamp the model's confidence into the [0, 1] that `Node`/`Edge` enforce."""
+    try:
+        value = float(raw)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.5
+    return min(max(value, 0.0), 1.0)
+
+
 class Extractor:
-    """Wraps the Anthropic Messages API with structured outputs.
+    """Wraps a `rpsg.llm.ChatClient` with the frozen extraction schema.
 
     `source_layer` defaults to CURATED because this is the offline, reviewed batch. The
     query-time loop constructs its own Extractor with `source_layer=STAGED`.
@@ -55,41 +98,47 @@ class Extractor:
         source_layer: SourceLayer = SourceLayer.CURATED,
         max_tokens: int = 4096,
     ) -> None:
-        import anthropic
-
         settings = get_settings()
-        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         self._model = model or settings.models.extraction_model
+        self._client = get_chat_client(self._model)
         self._source_layer = source_layer
         self._max_tokens = max_tokens
+        self._min_confidence = settings.extraction.min_confidence
 
     def _call(self, user_prompt: str) -> dict:
-        # Structured outputs guarantee schema-valid JSON in the first text block.
-        resp = self._client.messages.create(
-            model=self._model,
-            max_tokens=self._max_tokens,
+        # Structured outputs guarantee a schema-valid object.
+        return self._client.json(
             system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": user_prompt}],
-            output_config={
-                "format": {"type": "json_schema", "schema": EXTRACTION_JSON_SCHEMA}
-            },
+            user=user_prompt,
+            schema=EXTRACTION_JSON_SCHEMA,
+            schema_name="extraction",
+            max_tokens=self._max_tokens,
         )
-        text = next((b.text for b in resp.content if b.type == "text"), "{}")
-        return json.loads(text)
 
     def extract_section(self, paper_id: str, section: Section) -> ExtractionResult:
         prompt = build_user_prompt(paper_id, section.title, section.section_type, section.text)
+        # `_normalize` is inside the guard on purpose: a schema-valid payload can
+        # still fail model validation downstream (an out-of-range confidence, a
+        # shape `attrs` can't hold), and that must degrade one section rather
+        # than abort a batch that is expensive to restart.
         try:
             raw = self._call(prompt)
+            return self._normalize(paper_id, raw)
         except Exception as exc:  # noqa: BLE001 - one bad section must not kill the batch
             log.warning("Extraction failed for %s/%s: %s", paper_id, section.title, exc)
             return ExtractionResult(paper_id=paper_id)
-        return self._normalize(paper_id, raw)
 
     def extract_paper(self, paper_id: str, sections: list[Section]) -> ExtractionResult:
-        """Extract across all sections and merge into one result per paper."""
+        """Extract across all sections and merge into one result per paper.
+
+        Sections the chunker discards (`DROP_SECTION_TYPES` — i.e. bibliographies)
+        are skipped here too. Without this the batch spent a call per reference
+        list and mined nodes out of citation strings.
+        """
         merged = ExtractionResult(paper_id=paper_id)
         for section in sections:
+            if section.section_type in DROP_SECTION_TYPES:
+                continue
             part = self.extract_section(paper_id, section)
             merged.nodes.extend(part.nodes)
             merged.edges.extend(part.edges)
@@ -105,6 +154,8 @@ class Extractor:
     def _normalize(self, paper_id: str, raw: dict) -> ExtractionResult:
         nodes: list[Node] = []
         name_to_id: dict[str, str] = {}
+        dropped_nodes = 0
+        dropped_edges = 0
         for item in raw.get("nodes", []):
             try:
                 ntype = NodeType(item["type"])
@@ -112,6 +163,10 @@ class Extractor:
                 continue
             name = str(item.get("name", "")).strip()
             if not name:
+                continue
+            confidence = _coerce_confidence(item.get("confidence", 0.5))
+            if confidence < self._min_confidence:
+                dropped_nodes += 1
                 continue
             nid = _node_id(ntype, name)
             name_to_id[name.lower()] = nid
@@ -121,9 +176,9 @@ class Extractor:
                     type=ntype,
                     name=name,
                     aliases=item.get("aliases", []) or [],
-                    attrs=item.get("attrs", {}) or {},
+                    attrs=_parse_attrs(item.get("attrs")),
                     source_layer=self._source_layer,
-                    confidence=float(item.get("confidence", 0.5)),
+                    confidence=confidence,
                     evidence=[item.get("evidence_quote", "")][:1],
                 )
             )
@@ -136,22 +191,37 @@ class Extractor:
                 continue
             src_name = str(item.get("src_name", "")).strip().lower()
             dst_name = str(item.get("dst_name", "")).strip().lower()
+            confidence = _coerce_confidence(item.get("confidence", 0.5))
+            if confidence < self._min_confidence:
+                dropped_edges += 1
+                continue
             src = name_to_id.get(src_name)
             dst = name_to_id.get(dst_name)
             if not src or not dst or src == dst:
-                continue  # edge endpoints must resolve to nodes we actually extracted
+                # Endpoints must resolve to nodes we kept — so an edge onto a node the
+                # confidence gate dropped is dropped here too, transitively.
+                dropped_edges += 1
+                continue
             edges.append(
                 Edge(
                     src=src,
                     dst=dst,
                     type=etype,
-                    attrs=item.get("attrs", {}) or {},
+                    attrs=_parse_attrs(item.get("attrs")),
                     source_layer=self._source_layer,
-                    confidence=float(item.get("confidence", 0.5)),
+                    confidence=confidence,
                     evidence=[item.get("evidence_quote", "")][:1],
                 )
             )
 
+        if dropped_nodes or dropped_edges:
+            log.debug(
+                "%s: dropped %d nodes / %d edges below confidence %.2f",
+                paper_id,
+                dropped_nodes,
+                dropped_edges,
+                self._min_confidence,
+            )
         # Attach paper provenance: every extracted node is grounded in this paper.
         for n in nodes:
             n.attrs.setdefault("from_paper", paper_id)

@@ -153,8 +153,30 @@ class ExtractionResult(BaseModel):
         return {t: (c[0], c[1]) for t, c in counts.items()}
 
 
-# JSON Schema handed to the extractor (Anthropic structured outputs / `output_config.format`).
+# JSON Schema handed to the extractor via `rpsg.llm.ChatClient.json`.
 # Kept minimal & flat: the model returns nodes+edges; ids are normalized downstream.
+#
+# Written to satisfy OpenAI *strict* structured outputs, which is the tightest of
+# the provider constraints — a schema valid there is valid on Anthropic too. Two
+# rules shape what follows:
+#
+#   1. Every property must be listed in `required` (strict mode has no notion of
+#      an optional key). So `aliases` and `attrs` are required; the model returns
+#      [] / "{}" when it has nothing to say.
+#   2. Free-form objects are rejected — `{"type": "object"}` with no declared
+#      `properties` is not expressible. `attrs` is per-node-type and open-ended
+#      by design, so it crosses the wire as a JSON *string* and is parsed in
+#      `rpsg.extraction.extractor._parse_attrs`. This costs nothing downstream:
+#      KuzuGraphStore already persists `attrs` as a JSON string.
+_ATTRS_FIELD = {
+    "type": "string",
+    "description": (
+        "Type-specific fields as a JSON object encoded in a string, with flat "
+        'scalar values only (no nested lists or objects), e.g. '
+        '\'{"vendor": "IBM", "qubit_count": 127}\'. Use "{}" if none.'
+    ),
+}
+
 EXTRACTION_JSON_SCHEMA: dict = {
     "type": "object",
     "additionalProperties": False,
@@ -168,11 +190,18 @@ EXTRACTION_JSON_SCHEMA: dict = {
                     "type": {"type": "string", "enum": [t.value for t in NodeType]},
                     "name": {"type": "string"},
                     "aliases": {"type": "array", "items": {"type": "string"}},
-                    "attrs": {"type": "object"},
+                    "attrs": _ATTRS_FIELD,
                     "confidence": {"type": "number"},
                     "evidence_quote": {"type": "string"},
                 },
-                "required": ["type", "name", "confidence", "evidence_quote"],
+                "required": [
+                    "type",
+                    "name",
+                    "aliases",
+                    "attrs",
+                    "confidence",
+                    "evidence_quote",
+                ],
             },
         },
         "edges": {
@@ -184,11 +213,18 @@ EXTRACTION_JSON_SCHEMA: dict = {
                     "type": {"type": "string", "enum": [t.value for t in EdgeType]},
                     "src_name": {"type": "string"},
                     "dst_name": {"type": "string"},
-                    "attrs": {"type": "object"},
+                    "attrs": _ATTRS_FIELD,
                     "confidence": {"type": "number"},
                     "evidence_quote": {"type": "string"},
                 },
-                "required": ["type", "src_name", "dst_name", "confidence", "evidence_quote"],
+                "required": [
+                    "type",
+                    "src_name",
+                    "dst_name",
+                    "attrs",
+                    "confidence",
+                    "evidence_quote",
+                ],
             },
         },
     },

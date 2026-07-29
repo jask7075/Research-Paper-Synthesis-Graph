@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from rpsg.config import get_settings
 from rpsg.eval.gold_schema import GoldRecord
 from rpsg.eval.metrics import Answer
+from rpsg.llm import get_chat_client
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -47,7 +48,8 @@ Score 1-5 with a one-sentence justification citing a specific answer span:
 - refutation_handling: known contradictions surfaced (not suppressed)?
     1=ignored/one-sided, 3=mentioned not reconciled, 5=both sides reconciled.
 - synthesis: combines multiple sources into a relational picture, or just quotes one?
-    1=single-source paraphrase, 5=genuine multi-source synthesis.
+    1=single-source paraphrase, 3=lists several sources without integrating them,
+    5=genuine multi-source synthesis.
 """
 
 _JUDGE_SCHEMA = {
@@ -77,15 +79,10 @@ class JudgeScore(BaseModel):
 
 
 class Judge:
-    def __init__(self, model: str | None = None, temperature: float | None = None) -> None:
-        import anthropic
-
+    def __init__(self, model: str | None = None) -> None:
         settings = get_settings()
-        self._client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         self._model = model or settings.models.judge_model
-        self._temperature = (
-            settings.eval.judge_temperature if temperature is None else temperature
-        )
+        self._client = get_chat_client(self._model)
 
     def score(self, answer: Answer, gold: GoldRecord, evidence: str = "") -> JudgeScore:
         prompt = JUDGE_TEMPLATE.format(
@@ -96,15 +93,13 @@ class Judge:
             answer=answer.text,
             evidence=evidence or "(not provided)",
         )
-        resp = self._client.messages.create(
-            model=self._model,
-            max_tokens=1024,
+        raw = self._client.json(
             system=JUDGE_SYSTEM,
-            messages=[{"role": "user", "content": prompt}],
-            output_config={"format": {"type": "json_schema", "schema": _JUDGE_SCHEMA}},
+            user=prompt,
+            schema=_JUDGE_SCHEMA,
+            schema_name="judge_scores",
+            max_tokens=4096,
         )
-        text = next((b.text for b in resp.content if b.type == "text"), "{}")
-        raw = json.loads(text)
         return JudgeScore(
             qid=answer.qid,
             scores={c: int(raw[c]["score"]) for c in CRITERIA},

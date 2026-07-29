@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from rpsg.config import get_settings
+from rpsg.llm import ChatClient, get_chat_client
 from rpsg.logging import get_logger
 from rpsg.stores.base import Embedder, SearchHit, VectorStore
 
@@ -59,7 +60,7 @@ class VectorRAGSystem:
         self._corpus = corpus
         self._top_k = top_k
         self._synthesis_model = synthesis_model or get_settings().models.synthesis_model
-        self._client = None  # lazy Anthropic client
+        self._client: ChatClient | None = None  # built on first synthesis call
 
     def _retrieve(self, query: str) -> list[SearchHit]:
         qvec = self._embedder.encode([query])[0]
@@ -75,19 +76,13 @@ class VectorRAGSystem:
         return "\n\n".join(blocks), sorted(set(papers))
 
     def _synthesize(self, query: str, evidence: str) -> str:
-        import anthropic
-
         if self._client is None:
-            self._client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
-        resp = self._client.messages.create(
-            model=self._synthesis_model,
-            max_tokens=2048,
+            self._client = get_chat_client(self._synthesis_model)
+        return self._client.text(
             system=_SYNTH_SYSTEM,
-            messages=[
-                {"role": "user", "content": f"QUESTION: {query}\n\nEXCERPTS:\n{evidence}"}
-            ],
+            user=f"QUESTION: {query}\n\nEXCERPTS:\n{evidence}",
+            max_tokens=4096,
         )
-        return next((b.text for b in resp.content if b.type == "text"), "")
 
     def answer(self, query: str) -> SystemOutput:
         hits = self._retrieve(query)

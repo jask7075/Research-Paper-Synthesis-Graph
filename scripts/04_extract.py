@@ -1,13 +1,13 @@
 """Extract Tier B/C + reproducibility nodes/edges (the one-time API batch).
 
-    python scripts/04_extract.py            # needs ANTHROPIC_API_KEY
+    python scripts/04_extract.py            # needs the configured provider's API key
 
 Reads  data/interim/sections/<paper_id>.json
 Writes data/processed/extractions.jsonl     (one ExtractionResult per paper)
 
-Cost note: this is the run where paying for a frontier-small API model buys you out of the
-extraction-quality bottleneck. ~$20-45 over 2,000 papers on claude-haiku-4-5 (half that on
-the Batch API). Idempotent per paper so it is safe to re-run after prompt changes.
+Cost note: this is the run where paying for a hosted model buys you out of the
+extraction-quality bottleneck. Single-digit dollars over a 200-paper corpus on a
+small model. Idempotent per paper so it is safe to re-run after prompt changes.
 """
 
 from __future__ import annotations
@@ -24,9 +24,8 @@ log = get_logger(__name__)
 
 def main() -> None:
     settings = get_settings()
-    if not settings.anthropic_api_key:
-        raise SystemExit("ANTHROPIC_API_KEY is not set (see .env.example).")
-
+    # The API-key check lives in the provider adapter (rpsg.llm), so it stays
+    # correct whichever provider `models.extraction_model` routes to.
     sect_dir = settings.paths.data_interim / "sections"
     out = settings.paths.data_processed / "extractions.jsonl"
     out.parent.mkdir(parents=True, exist_ok=True)
