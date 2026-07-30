@@ -1,23 +1,106 @@
-"""ArXiv PDF retrieval.
+"""ArXiv search + PDF retrieval.
 
-S2 gives metadata and (sometimes) an open-access PDF link; ArXiv is the reliable
-full-text source for cs.LG / cs.CL / quant-ph. This module only downloads — parsing is
-`pdf_parser`'s job.
+Two roles:
+    search_arxiv()  Corpus discovery with no API key. ArXiv's API is open, and for
+                    quant-ph / cs.LG / cs.CL its coverage of the full text is total —
+                    every hit has a PDF, unlike S2 where only some do.
+    fetch_pdf()     Download one paper. Parsing is `pdf_parser`'s job.
+
+Choosing between this and Semantic Scholar:
+    S2     needs a key (the unauthenticated pool returns a sustained 429) but supplies
+           `references` -> the Tier-A `cites` edges the citation-graph baseline needs,
+           plus disambiguated author ids.
+    ArXiv  needs no key and guarantees full text, but returns no reference lists and no
+           author ids, so `to_graph` emits no `cites` and no Author nodes.
+
+They compose: build the corpus from ArXiv now, then once a key arrives backfill S2
+metadata by ArXiv id (S2 accepts `/paper/ARXIV:2301.12345`) to recover the citation
+edges without re-downloading anything.
 """
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
 import httpx
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
+from rpsg.ingestion.semantic_scholar import S2Author, S2Paper
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
 
 ARXIV_PDF = "https://arxiv.org/pdf/{arxiv_id}"
+
+#: Trailing version marker on an ArXiv id ("2010.05863v1" -> "2010.05863"). Stripped so
+#: re-ingesting a paper that has since been revised does not create a second record.
+_VERSION_SUFFIX = re.compile(r"v\d+$")
+
+
+def _fs_safe(arxiv_id: str) -> str:
+    """Make an ArXiv id usable as a filename.
+
+    Pre-2007 ids carry a slash ("quant-ph/9512022"), which would otherwise be read as a
+    directory separator when the PDF is written to `<dir>/<paper_id>.pdf`. quant-ph has a
+    lot of foundational pre-2007 work, so this is not a hypothetical.
+    """
+    return arxiv_id.replace("/", "_")
+
+
+def search_arxiv(
+    query: str,
+    limit: int = 100,
+    category: str | None = "quant-ph",
+    min_year: int | None = None,
+    sort: str = "relevance",
+    page_size: int = 100,
+) -> list[S2Paper]:
+    """Search ArXiv and return records in the pipeline's paper-metadata shape.
+
+    `S2Paper` is reused deliberately: it is the pipeline's paper record regardless of
+    where the metadata came from, so nothing downstream needs to know the source. The
+    fields ArXiv cannot supply are left empty rather than guessed — `references` stays
+    `[]` (no citation edges) and authors carry no `authorId` (so `to_graph` skips them
+    rather than inventing an identity).
+
+    `min_year` is pushed into the ArXiv query as a `submittedDate` range rather than
+    filtered client-side, so it does not silently eat into `limit`.
+    """
+    import arxiv
+
+    terms = [query]
+    if category:
+        terms.insert(0, f"cat:{category}")
+    if min_year:
+        terms.append(f"submittedDate:[{min_year}0101 TO 20991231]")
+    full_query = " AND ".join(terms)
+
+    criterion = (
+        arxiv.SortCriterion.SubmittedDate if sort == "date" else arxiv.SortCriterion.Relevance
+    )
+    client = arxiv.Client(page_size=min(page_size, limit), delay_seconds=3.0, num_retries=3)
+    search = arxiv.Search(query=full_query, max_results=limit, sort_by=criterion)
+
+    papers: list[S2Paper] = []
+    for result in client.results(search):
+        arxiv_id = _VERSION_SUFFIX.sub("", result.get_short_id())
+        papers.append(
+            S2Paper(
+                paperId=_fs_safe(arxiv_id),
+                title=result.title,
+                abstract=result.summary,
+                year=result.published.year if result.published else None,
+                venue="arXiv",
+                authors=[S2Author(authorId=None, name=a.name) for a in result.authors],
+                references=[],
+                openAccessPdf={"url": result.pdf_url} if result.pdf_url else None,
+                externalIds={"ArXiv": arxiv_id, "DOI": result.doi},
+            )
+        )
+    log.info("ArXiv search %r -> %d papers", full_query, len(papers))
+    return papers
 
 
 @retry(

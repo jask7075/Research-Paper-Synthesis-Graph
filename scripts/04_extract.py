@@ -17,6 +17,7 @@ import json
 from rpsg.config import get_settings
 from rpsg.extraction.extractor import Extractor
 from rpsg.ingestion.chunking import Section
+from rpsg.llm.usage import USAGE
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -46,6 +47,8 @@ def main() -> None:
             tiers = result.by_tier()
             log.info("extracted %s: %d nodes %d edges %s", paper_id,
                      len(result.nodes), len(result.edges), tiers)
+
+    print("\n" + USAGE.summary())
 
 
 if __name__ == "__main__":

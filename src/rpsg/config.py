@@ -44,6 +44,10 @@ class Models(BaseModel):
     local_inference_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
     #: Override provider routing. None = infer from the model id (see rpsg.llm).
     provider: str | None = None
+    #: Optional per-model rates, e.g. {"gpt-5.4-nano": {"input_per_mtok": 0.05,
+    #: "output_per_mtok": 0.40}}. Deliberately empty by default — see rpsg.llm.usage
+    #: for why rates are not hardcoded. Token counts are reported either way.
+    pricing: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 class Embeddings(BaseModel):
@@ -53,10 +57,21 @@ class Embeddings(BaseModel):
 
 
 class Extraction(BaseModel):
-    #: Nodes/edges the extractor reports below this confidence are dropped rather than
-    #: written to the curated layer. An edge is also dropped when either endpoint was
-    #: dropped, so raising this prunes the graph transitively.
-    min_confidence: float = 0.5
+    #: Nodes below this confidence are dropped rather than written to the curated layer.
+    #: Set to 0.65 because inspection put the real/soft boundary for `Limitation` there,
+    #: and it costs only 7% of nodes.
+    min_node_confidence: float = 0.65
+    #: Edges are gated SEPARATELY and more loosely on purpose. A uniform 0.65 threshold
+    #: retains 93% of nodes but only 71% of edges — edges are the scarce resource (350
+    #: against 1379 nodes on a 20-paper corpus) and they are what makes this a graph
+    #: rather than a bag of typed nodes, so paying 29% of them for node precision is a
+    #: bad trade. An edge is still dropped when either endpoint was dropped, so node
+    #: gating already prunes edges transitively.
+    min_edge_confidence: float = 0.5
+    #: Sections extracted in parallel within one paper. The stage is network-bound, not
+    #: CPU-bound (measured: 0.2% CPU across a 29-minute run), so this is pure latency
+    #: hiding. Raise it if the provider's rate limit allows; lower it on 429s.
+    max_workers: int = 8
 
 
 class Chunking(BaseModel):

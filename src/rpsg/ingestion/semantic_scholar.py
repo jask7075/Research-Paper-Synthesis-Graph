@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from rpsg.extraction.schema import Edge, EdgeType, Node, NodeType, SourceLayer
@@ -42,6 +42,19 @@ class S2Paper(BaseModel):
     references: list[dict[str, Any]] = Field(default_factory=list)
     openAccessPdf: dict[str, Any] | None = None
     externalIds: dict[str, Any] = Field(default_factory=dict)
+
+    # S2 sends an explicit `null` for these on some records rather than omitting the
+    # key, and a default_factory only fires when the key is ABSENT — so without this
+    # the first such paper aborts the whole fetch with a ValidationError.
+    @field_validator("authors", "references", mode="before")
+    @classmethod
+    def _null_to_empty_list(cls, value: Any) -> Any:
+        return [] if value is None else value
+
+    @field_validator("externalIds", mode="before")
+    @classmethod
+    def _null_to_empty_dict(cls, value: Any) -> Any:
+        return {} if value is None else value
 
     @property
     def pdf_url(self) -> str | None:

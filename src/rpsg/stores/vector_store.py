@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -24,7 +25,11 @@ class FaissVectorStore(VectorStore):
         self._index_path = Path(index_path)
         self._meta_path = self._index_path.with_suffix(".meta.jsonl")
         self.dim = dim
-        self._index = None  # lazy faiss index
+        # `Any`, not `faiss.Index`: faiss lives in the optional `vector` extra and is
+        # imported lazily, so the annotation must hold whether or not it is installed.
+        # (Typed as None it passed mypy only while faiss was absent — CI installs
+        # `.[dev]` without `vector`, so that discrepancy was invisible there.)
+        self._index: Any = None
         self._chunks: list[Chunk] = []
 
     def _ensure_index(self):  # noqa: ANN202 - faiss is untyped; returns a faiss index

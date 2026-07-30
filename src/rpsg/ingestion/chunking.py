@@ -43,14 +43,34 @@ _SECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     ),
     (re.compile(r"\b(limitation|threats to validity|future work)", re.I), "limitations"),
     (re.compile(r"\b(discussion|analysis)", re.I), "discussion"),
-    (re.compile(r"\b(conclusion|summary)", re.I), "conclusion"),
+    (re.compile(r"\b(conclusion|summary|outlook)", re.I), "conclusion"),
+    # Data/code availability statements carry the reproducibility payload (repo URLs,
+    # dataset access terms). Measured on 20 quant-ph papers these were 12 sections all
+    # typed `other`, so they were being asked for Method/Problem/Claim — the wrong
+    # question of exactly the right text. Must precede the `appendix` rule.
+    (
+        re.compile(
+            r"\b(data|code|software)\s+availability|\bavailability\s+of\s+(data|code)", re.I
+        ),
+        "availability",
+    ),
+    (re.compile(r"\backnowledg", re.I), "acknowledgments"),
     (re.compile(r"\b(appendix|supplement)", re.I), "appendix"),
     (re.compile(r"\b(references|bibliography)", re.I), "references"),
 ]
 
-#: Sections dropped before chunking. Appendices are deliberately KEPT — that is where
-#: hardware/software/reproducibility facts live (extension #4).
-DROP_SECTION_TYPES = frozenset({"references"})
+#: Sections dropped before chunking AND before extraction. Appendices are deliberately
+#: KEPT — that is where hardware/software/reproducibility facts live (extension #4).
+#: Acknowledgments are funding boilerplate with nothing extractable, and were costing
+#: one API call each (8 across 20 papers).
+DROP_SECTION_TYPES = frozenset({"references", "acknowledgments"})
+
+#: Types that already provide a route to `Limitation` in `rpsg.extraction.prompts`.
+_LIMITATION_ROUTES = frozenset({"conclusion", "discussion", "limitations"})
+#: Trailing matter that is not the paper's conclusion.
+_TAIL_TYPES = frozenset({"references", "appendix", "acknowledgments", "availability"})
+#: A positionally-inferred conclusion must have real content, not be a stray fragment.
+_MIN_CONCLUSION_CHARS = 400
 
 
 class Section(BaseModel):
@@ -59,6 +79,45 @@ class Section(BaseModel):
     title: str
     text: str
     section_type: str = "other"
+
+
+def refine_section_types(sections: list[Section]) -> list[Section]:
+    """Second pass: infer a type from document position where the title could not.
+
+    Title keywords cannot type most headings. Measured across 20 quant-ph papers, 69%
+    of sections were `other`, and inspecting them showed the majority are genuine
+    domain subsections ("The role of measurements", "Variational Dicke state ansatz")
+    that no keyword scheme will ever match. Position, though, is informative — and it
+    matters for one specific reason: `conclusion`/`discussion`/`limitations` are the
+    only types that route `Limitation`, and 7 of those 20 papers had none of the three,
+    making the relational core of the thesis unreachable for 35% of the corpus.
+
+    Two rules, both conservative:
+      1. A leading `other` section is front matter -> `introduction`.
+      2. If nothing routes `Limitation`, the last substantial body section becomes
+         `conclusion`. Trailing matter (references, appendix, acknowledgments,
+         availability) is skipped, and a short fragment is not eligible.
+
+    Mutates nothing: returns the same list with `section_type` updated in place on the
+    Section models, which are local to one parse.
+    """
+    if not sections:
+        return sections
+
+    if sections[0].section_type == "other":
+        sections[0].section_type = "introduction"
+
+    if not any(s.section_type in _LIMITATION_ROUTES for s in sections):
+        for section in reversed(sections):
+            if section.section_type in _TAIL_TYPES:
+                continue
+            if section.section_type == "other" and len(section.text) >= _MIN_CONCLUSION_CHARS:
+                section.section_type = "conclusion"
+            # Stop at the first non-tail section either way: if it was already typed
+            # (say `results`), the paper simply has no conclusion to find.
+            break
+
+    return sections
 
 
 def approx_tokens(text: str) -> int:

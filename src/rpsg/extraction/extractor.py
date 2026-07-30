@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from rpsg.config import get_settings
 from rpsg.extraction.prompts import SYSTEM_PROMPT, build_user_prompt
@@ -103,7 +104,9 @@ class Extractor:
         self._client = get_chat_client(self._model)
         self._source_layer = source_layer
         self._max_tokens = max_tokens
-        self._min_confidence = settings.extraction.min_confidence
+        self._min_node_confidence = settings.extraction.min_node_confidence
+        self._min_edge_confidence = settings.extraction.min_edge_confidence
+        self._max_workers = settings.extraction.max_workers
 
     def _call(self, user_prompt: str) -> dict:
         # Structured outputs guarantee a schema-valid object.
@@ -134,14 +137,31 @@ class Extractor:
         Sections the chunker discards (`DROP_SECTION_TYPES` — i.e. bibliographies)
         are skipped here too. Without this the batch spent a call per reference
         list and mined nodes out of citation strings.
+
+        Sections are extracted concurrently: each is an independent request with no
+        shared state or ordering dependency, and the stage is purely network-bound
+        (a sequential 29-minute run measured 0.2% CPU). `executor.map` preserves
+        section order so a given corpus produces the same merge order regardless of
+        which request finishes first. Per-section failures are already swallowed by
+        `extract_section`, so one bad section cannot fail the pool.
         """
+        targets = [s for s in sections if s.section_type not in DROP_SECTION_TYPES]
         merged = ExtractionResult(paper_id=paper_id)
-        for section in sections:
-            if section.section_type in DROP_SECTION_TYPES:
-                continue
-            part = self.extract_section(paper_id, section)
+
+        if not targets:
+            return merged
+
+        workers = max(1, min(self._max_workers, len(targets)))
+        if workers == 1:
+            parts = [self.extract_section(paper_id, s) for s in targets]
+        else:
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                parts = list(pool.map(lambda s: self.extract_section(paper_id, s), targets))
+
+        for part in parts:
             merged.nodes.extend(part.nodes)
             merged.edges.extend(part.edges)
+
         # Dedup nodes by id (a method can appear in several sections).
         by_id: dict[str, Node] = {}
         for n in merged.nodes:
@@ -165,7 +185,7 @@ class Extractor:
             if not name:
                 continue
             confidence = _coerce_confidence(item.get("confidence", 0.5))
-            if confidence < self._min_confidence:
+            if confidence < self._min_node_confidence:
                 dropped_nodes += 1
                 continue
             nid = _node_id(ntype, name)
@@ -192,7 +212,7 @@ class Extractor:
             src_name = str(item.get("src_name", "")).strip().lower()
             dst_name = str(item.get("dst_name", "")).strip().lower()
             confidence = _coerce_confidence(item.get("confidence", 0.5))
-            if confidence < self._min_confidence:
+            if confidence < self._min_edge_confidence:
                 dropped_edges += 1
                 continue
             src = name_to_id.get(src_name)
@@ -216,11 +236,12 @@ class Extractor:
 
         if dropped_nodes or dropped_edges:
             log.debug(
-                "%s: dropped %d nodes / %d edges below confidence %.2f",
+                "%s: dropped %d nodes (<%.2f) / %d edges (<%.2f)",
                 paper_id,
                 dropped_nodes,
+                self._min_node_confidence,
                 dropped_edges,
-                self._min_confidence,
+                self._min_edge_confidence,
             )
         # Attach paper provenance: every extracted node is grounded in this paper.
         for n in nodes:

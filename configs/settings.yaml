@@ -35,8 +35,14 @@ embeddings:
 
 extraction:
   # Drop low-confidence nodes/edges instead of writing them to the curated layer.
-  # Edges whose endpoints were dropped go too. 0.0 disables the gate.
-  min_confidence: 0.5
+  # Gated separately: a uniform 0.65 keeps 93% of nodes but only 71% of edges, and
+  # edges are far scarcer than nodes. Edges are also pruned transitively when an
+  # endpoint node is dropped. 0.0 disables either gate.
+  min_node_confidence: 0.65
+  min_edge_confidence: 0.5
+  # Sections extracted concurrently within a paper. This stage waits on HTTP, it does
+  # not compute — a 29-minute sequential run used 0.2% CPU. 1 disables concurrency.
+  max_workers: 8
 
 chunking:
   target_tokens: 512        # per chunk (approximate; see rpsg.ingestion.chunking)

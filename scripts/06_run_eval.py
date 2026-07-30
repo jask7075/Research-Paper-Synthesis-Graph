@@ -15,6 +15,7 @@ from datetime import UTC, datetime
 from rpsg.config import get_settings
 from rpsg.eval.gold_schema import load_gold
 from rpsg.eval.runner import run_system
+from rpsg.llm.usage import USAGE
 from rpsg.logging import get_logger
 from rpsg.retrieval.baselines import VectorRAGSystem
 from rpsg.stores.embedder import HashEmbedder, SentenceTransformerEmbedder
@@ -60,6 +61,7 @@ def main() -> None:
     run_system(system, gold, run_dir, use_judge=not args.no_judge)
     log.info("run complete -> %s", run_dir)
     print((run_dir / "report.md").read_text())
+    print(USAGE.summary())
 
 
 if __name__ == "__main__":

@@ -5,9 +5,16 @@ extraction prompt, (b) a slot in the eval, and (c) a query that consumes it. A t
 no consumer is bloat — cut it, don't carry it.
 
 Tiers, by extraction reliability:
-    A  Metadata      Paper, Author, Venue, Dataset      cheap, high-precision (mostly APIs)
-    B  Semantic      Method, Problem, Claim, Limitation LLM-extracted, medium precision
+    A  Metadata      Paper, Author, Venue               cheap, high-precision (from APIs)
+    B  Semantic      Method, Problem, Claim, Limitation,
+                     Dataset                           LLM-extracted, medium precision
     C  Relational    the edges (evaluated_on … refutes) LLM-inferred, lowest precision
+
+`Dataset` sits in Tier B, not A. The original design put it in A on the assumption it
+would arrive from an API, but no Semantic Scholar field supplies datasets — every
+Dataset node is produced by the LLM from Results/appendix/availability sections. Leaving
+it in A made `by_tier()` report 33 LLM-extracted nodes as free high-precision metadata,
+which is exactly the number the per-tier precision breakdown exists to keep honest.
 
 Reproducibility layer (extension #4, the Iteration-2 core): Hardware, Software,
 ReproducibilityArtifact — medium difficulty but *objectively evaluable*.
@@ -76,7 +83,7 @@ NODE_TIER: dict[NodeType, Tier] = {
     NodeType.PAPER: Tier.A_METADATA,
     NodeType.AUTHOR: Tier.A_METADATA,
     NodeType.VENUE: Tier.A_METADATA,
-    NodeType.DATASET: Tier.A_METADATA,
+    NodeType.DATASET: Tier.B_SEMANTIC,  # LLM-extracted, not from an API — see docstring
     NodeType.METHOD: Tier.B_SEMANTIC,
     NodeType.PROBLEM: Tier.B_SEMANTIC,
     NodeType.CLAIM: Tier.B_SEMANTIC,

@@ -19,7 +19,7 @@ from pathlib import Path
 
 import httpx
 
-from rpsg.ingestion.chunking import Section, classify_section
+from rpsg.ingestion.chunking import Section, classify_section, refine_section_types
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -147,6 +147,17 @@ def parse_with_grobid(pdf_path: Path, grobid_url: str, timeout: float = 120.0) -
         )
     resp.raise_for_status()
 
+    # `raise_for_status` is not sufficient. A misconfigured or wrong host can answer 2xx
+    # with an HTML landing page — observed: a Hugging Face Space returned HTTP 206 and
+    # 4KB of HTML, which parsed without error and yielded zero sections. Silently
+    # treating that as a successful parse would produce an empty corpus for every paper.
+    content_type = resp.headers.get("content-type", "")
+    if "xml" not in content_type.lower():
+        raise ValueError(
+            f"GROBID returned content-type {content_type!r}, not XML — "
+            f"{grobid_url} is probably not a GROBID service"
+        )
+
     ns = {"tei": "http://www.tei-c.org/ns/1.0"}
     root = ET.fromstring(resp.text)
     sections: list[Section] = []
@@ -171,6 +182,9 @@ def parse_with_grobid(pdf_path: Path, grobid_url: str, timeout: float = 120.0) -
             sections.append(
                 Section(title=title, text=text, section_type=classify_section(title))
             )
+
+    if not sections:
+        raise ValueError(f"GROBID returned no sections for {pdf_path.name}")
 
     log.info("GROBID parsed %s -> %d sections", pdf_path.name, len(sections))
     return sections
@@ -240,10 +254,17 @@ def parse_with_pymupdf(pdf_path: Path) -> list[Section]:
 
 
 def parse_pdf(pdf_path: Path, grobid_url: str | None = None) -> list[Section]:
-    """Parse a PDF, preferring GROBID and falling back to PyMuPDF on any failure."""
+    """Parse a PDF, preferring GROBID and falling back to PyMuPDF on any failure.
+
+    "Failure" includes a 2xx response that is not XML and a parse that yields zero
+    sections — both raise in `parse_with_grobid` so they reach the fallback here.
+    A degraded parse is recoverable; a silently empty one is not.
+    """
     if grobid_url:
         try:
-            return parse_with_grobid(pdf_path, grobid_url)
+            return refine_section_types(parse_with_grobid(pdf_path, grobid_url))
         except Exception as exc:  # noqa: BLE001 - degrade rather than lose the paper
             log.warning("GROBID failed for %s (%s); falling back to PyMuPDF", pdf_path.name, exc)
-    return parse_with_pymupdf(pdf_path)
+    # Applied to both backends: GROBID gives better titles but is equally unable to
+    # invent a `Conclusions` heading a paper does not have.
+    return refine_section_types(parse_with_pymupdf(pdf_path))

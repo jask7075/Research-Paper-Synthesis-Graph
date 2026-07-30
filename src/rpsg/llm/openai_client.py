@@ -19,6 +19,7 @@ import json
 
 from rpsg.config import get_settings
 from rpsg.llm.base import ChatClient
+from rpsg.llm.usage import USAGE
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -48,6 +49,18 @@ class OpenAIChatClient(ChatClient):
         if response_format is not None:
             kwargs["response_format"] = response_format
         resp = self._client.chat.completions.create(**kwargs)
+
+        # Recorded before any error branch below: a refused or truncated response is
+        # still billed, so excluding it would under-report spend.
+        if resp.usage is not None:
+            details = getattr(resp.usage, "prompt_tokens_details", None)
+            USAGE.record(
+                self.model,
+                input_tokens=resp.usage.prompt_tokens or 0,
+                output_tokens=resp.usage.completion_tokens or 0,
+                cached_input_tokens=getattr(details, "cached_tokens", 0) or 0,
+            )
+
         choice = resp.choices[0]
         if getattr(choice.message, "refusal", None):
             raise RuntimeError(f"{self.model} refused the request: {choice.message.refusal}")

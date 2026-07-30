@@ -12,6 +12,7 @@ import json
 
 from rpsg.config import get_settings
 from rpsg.llm.base import ChatClient
+from rpsg.llm.usage import USAGE
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -28,6 +29,14 @@ class AnthropicChatClient(ChatClient):
         self.model = model
 
     def _first_text(self, resp) -> str:
+        usage = getattr(resp, "usage", None)
+        if usage is not None:
+            USAGE.record(
+                self.model,
+                input_tokens=getattr(usage, "input_tokens", 0) or 0,
+                output_tokens=getattr(usage, "output_tokens", 0) or 0,
+                cached_input_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            )
         return next((b.text for b in resp.content if b.type == "text"), "")
 
     def json(
