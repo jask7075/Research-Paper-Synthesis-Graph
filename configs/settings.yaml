@@ -28,8 +28,11 @@ models:
   local_inference_model: Qwen/Qwen2.5-14B-Instruct-AWQ
 
 embeddings:
-  # SPECTER2 is tuned for scientific papers; swap for a general strong embedder if desired.
-  model_name: allenai/specter2_base
+  # SPECTER (original) — tuned for scientific papers and natively packaged for
+  # sentence-transformers. NOT allenai/specter2_base: SPECTER2 is an adapter model and
+  # sentence-transformers loads only its base weights, silently. Swap for a general
+  # embedder (e.g. BAAI/bge-base-en-v1.5, also 768-dim) if you prefer.
+  model_name: sentence-transformers/allenai-specter
   dim: 768
   batch_size: 32
 

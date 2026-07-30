@@ -117,6 +117,21 @@ def _download(url: str, dest: Path, timeout: float = 60.0) -> None:
                 fh.write(block)
 
 
+#: Smallest plausible PDF. Anything under this is a truncated or error response.
+_MIN_PDF_BYTES = 1024
+
+
+def _is_usable_pdf(path: Path) -> bool:
+    """True when the file exists, is big enough, and starts with the PDF magic bytes."""
+    try:
+        if path.stat().st_size < _MIN_PDF_BYTES:
+            return False
+        with path.open("rb") as fh:
+            return fh.read(5).startswith(b"%PDF")
+    except OSError:
+        return False
+
+
 def fetch_pdf(
     arxiv_id: str | None,
     pdf_url: str | None,
@@ -132,8 +147,10 @@ def fetch_pdf(
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     dest = dest_dir / f"{paper_id}.pdf"
-    if dest.exists() and dest.stat().st_size > 0:
-        return dest
+    if dest.exists():
+        if _is_usable_pdf(dest):
+            return dest  # idempotent: a good file is reused
+        dest.unlink(missing_ok=True)  # a bad file from an earlier run is retried
 
     url = ARXIV_PDF.format(arxiv_id=arxiv_id) if arxiv_id else pdf_url
     if not url:
@@ -144,6 +161,15 @@ def fetch_pdf(
         _download(url, dest)
     except Exception as exc:  # noqa: BLE001 - a missing PDF must not kill the batch
         log.warning("PDF download failed for %s (%s): %s", paper_id, url, exc)
+        dest.unlink(missing_ok=True)
+        return None
+
+    # `raise_for_status` is not enough. A 200 with an empty body still opens (and so
+    # creates) the destination file, leaving a 0-byte PDF that raises nothing here and
+    # then aborts the parse stage later. An HTML error page served as a PDF fails the
+    # same way, hence the magic-byte check.
+    if not _is_usable_pdf(dest):
+        log.warning("PDF for %s was empty or not a PDF (%s); discarding", paper_id, url)
         dest.unlink(missing_ok=True)
         return None
 

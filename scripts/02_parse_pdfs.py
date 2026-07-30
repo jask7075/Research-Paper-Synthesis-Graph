@@ -28,14 +28,25 @@ def main() -> None:
     pdfs = sorted(pdf_dir.glob("*.pdf")) if pdf_dir.exists() else []
     log.info("parsing %d PDFs (grobid=%s)", len(pdfs), grobid)
 
+    parsed = failed = 0
     for pdf in pdfs:
         paper_id = pdf.stem
         out = out_dir / f"{paper_id}.json"
         if out.exists():
             continue  # idempotent
-        sections = parse_pdf(pdf, grobid_url=grobid)
+        # One unparseable PDF must not abort the batch. A single zero-byte download
+        # previously killed the whole stage 152 papers in, and because the stage is
+        # idempotent-by-output-file the survivors looked like a complete run.
+        try:
+            sections = parse_pdf(pdf, grobid_url=grobid)
+        except Exception as exc:  # noqa: BLE001 - skip the paper, keep the corpus
+            log.warning("could not parse %s: %s", pdf.name, exc)
+            failed += 1
+            continue
         out.write_text(json.dumps([s.model_dump() for s in sections], indent=2))
-    log.info("done")
+        parsed += 1
+    log.info("done: %d parsed, %d failed, %d already present",
+             parsed, failed, len(pdfs) - parsed - failed)
 
 
 if __name__ == "__main__":

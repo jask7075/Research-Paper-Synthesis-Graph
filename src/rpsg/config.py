@@ -51,7 +51,12 @@ class Models(BaseModel):
 
 
 class Embeddings(BaseModel):
-    model_name: str = "allenai/specter2_base"
+    #: SPECTER (original), natively packaged for sentence-transformers. Chosen over
+    #: `allenai/specter2_base`: SPECTER2 is an adapter model (base weights + a task
+    #: adapter) and plain sentence-transformers loads only the base, silently — no
+    #: error, just a model that is not the one you asked for. Same 768 dims and same
+    #: scientific-paper domain, so this is a drop-in with no config knock-on.
+    model_name: str = "sentence-transformers/allenai-specter"
     dim: int = 768
     batch_size: int = 32
 

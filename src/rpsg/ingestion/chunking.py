@@ -81,6 +81,42 @@ class Section(BaseModel):
     section_type: str = "other"
 
 
+#: A section shorter than this is treated as a split artefact, not a real section.
+_FRAGMENT_CHARS = 200
+
+
+def merge_fragment_sections(sections: list[Section]) -> list[Section]:
+    """Fold untyped fragments into the preceding section.
+
+    Typography-based heading detection false-positives on wrapped lines — observed
+    "titles" include `'bility of the BP'` and `'tum Circuits, Mitigation of Barren
+    Plateau'`, which are mid-word fragments of running text. Each one splits a real
+    section into several tiny ones, and extraction costs one API call per section:
+    measured on 179 papers, 4,401 sections with a median of 20 but a maximum of 151,
+    where that single paper was ~3.7% of the whole batch.
+
+    Two guards on what may merge:
+      - Only `other` fragments. A short but TYPED section (a 150-char "Limitations")
+        carries routing information that folding it away would destroy.
+      - Never into a dropped section (references/acknowledgments), since that section's
+        text is discarded and the fragment's would go with it.
+
+    Runs BEFORE `refine_section_types`, because that function reasons about first/last
+    position and merging changes what is first and last.
+    """
+    merged: list[Section] = []
+    for section in sections:
+        is_fragment = (
+            section.section_type == "other" and len(section.text.strip()) < _FRAGMENT_CHARS
+        )
+        if is_fragment and merged and merged[-1].section_type not in DROP_SECTION_TYPES:
+            previous = merged[-1]
+            previous.text = f"{previous.text}\n{section.text}".strip()
+            continue
+        merged.append(section)
+    return merged
+
+
 def refine_section_types(sections: list[Section]) -> list[Section]:
     """Second pass: infer a type from document position where the title could not.
 

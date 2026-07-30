@@ -19,7 +19,12 @@ from pathlib import Path
 
 import httpx
 
-from rpsg.ingestion.chunking import Section, classify_section, refine_section_types
+from rpsg.ingestion.chunking import (
+    Section,
+    classify_section,
+    merge_fragment_sections,
+    refine_section_types,
+)
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -262,9 +267,11 @@ def parse_pdf(pdf_path: Path, grobid_url: str | None = None) -> list[Section]:
     """
     if grobid_url:
         try:
-            return refine_section_types(parse_with_grobid(pdf_path, grobid_url))
+            return refine_section_types(
+                    merge_fragment_sections(parse_with_grobid(pdf_path, grobid_url))
+                )
         except Exception as exc:  # noqa: BLE001 - degrade rather than lose the paper
             log.warning("GROBID failed for %s (%s); falling back to PyMuPDF", pdf_path.name, exc)
     # Applied to both backends: GROBID gives better titles but is equally unable to
     # invent a `Conclusions` heading a paper does not have.
-    return refine_section_types(parse_with_pymupdf(pdf_path))
+    return refine_section_types(merge_fragment_sections(parse_with_pymupdf(pdf_path)))
