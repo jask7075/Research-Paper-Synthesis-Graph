@@ -47,6 +47,30 @@ class FaissVectorStore(VectorStore):
         return self._index
 
     @staticmethod
+    def _pin_faiss_to_one_thread() -> None:
+        """Stop faiss spawning OpenMP threads, which segfaults alongside torch.
+
+        Three separate `libomp.dylib` copies ship in this environment (faiss, torch,
+        sklearn). When a process has loaded torch and then runs a threaded faiss
+        search, it dies with SIGSEGV — reproducibly, and only at `search()`: loading
+        the index, encoding, and building a fresh `IndexFlatIP` are all fine, which
+        is why stage 05 never hit it and `ask.py` always did.
+
+        Called immediately before searching rather than at import, because setting it
+        before both runtimes exist raises `OMP Error #15` instead. A global
+        `OMP_NUM_THREADS=1` also fixes the crash but throttles torch, slowing the
+        10k-chunk embedding pass in stage 05 for no reason; `KMP_DUPLICATE_LIB_OK`
+        does not fix it at all. Single-threaded search costs nothing measurable on a
+        flat index of this size.
+        """
+        try:
+            import faiss
+
+            faiss.omp_set_num_threads(1)
+        except Exception:  # noqa: BLE001 - a missing symbol must not break retrieval
+            pass
+
+    @staticmethod
     def _normalize(mat: np.ndarray) -> np.ndarray:
         norms = np.linalg.norm(mat, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
@@ -61,6 +85,7 @@ class FaissVectorStore(VectorStore):
         self._chunks.extend(chunks)
 
     def search(self, query_embedding: list[float], top_k: int, corpus: str) -> list[SearchHit]:
+        self._pin_faiss_to_one_thread()
         index = self._ensure_index()
         q = self._normalize(np.asarray([query_embedding], dtype="float32"))
         # Over-fetch, then filter by corpus (flat index has no metadata filter).

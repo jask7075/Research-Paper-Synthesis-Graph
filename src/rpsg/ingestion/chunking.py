@@ -83,6 +83,8 @@ class Section(BaseModel):
 
 #: A section shorter than this is treated as a split artefact, not a real section.
 _FRAGMENT_CHARS = 200
+#: Chunks shorter than this are dropped rather than embedded — see `_emit_chunk`.
+_MIN_CHUNK_CHARS = 80
 
 
 def merge_fragment_sections(sections: list[Section]) -> list[Section]:
@@ -202,7 +204,13 @@ def _emit_chunk(
         return
     start, end = accumulated[0][0], accumulated[-1][1]
     text = section.text[start:end].strip()
-    if not text:
+    # A chunk this short carries no retrievable content, and it is not merely useless:
+    # embedding a 1-3 character string ("A", "1", ",") yields a near-centroid vector that
+    # scores moderately against every query, so on a query with no strong match these
+    # float into the top-k and crowd out real text. Observed on a 10,117-chunk index:
+    # 156 chunks (1.5%) under 20 chars, and a real query returned six of them, leaving
+    # the synthesizer with 201 tokens of section labels to answer from.
+    if len(text) < _MIN_CHUNK_CHARS:
         return
     chunks.append(
         Chunk(
