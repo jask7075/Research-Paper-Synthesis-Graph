@@ -14,14 +14,57 @@ from typing import Any
 
 import numpy as np
 
+from rpsg.config import get_settings
 from rpsg.logging import get_logger
 from rpsg.stores.base import Chunk, SearchHit, VectorStore
 
 log = get_logger(__name__)
 
 
+#: Section types whose content is inherently terse, exempt from length damping.
+#: An availability statement is *complete* at 269 chars ("The code and data supporting
+#: this study are openly available at ..."), unlike a 162-char "This section briefly
+#: provides..." stub which is merely truncated — so length cannot tell them apart but
+#: section type can. Measured: damping without this exemption dropped availability
+#: sections from 5 hits to 0 across six probe queries, including the one that asks
+#: literally "where is the code for these experiments available", making the
+#: reproducibility layer unreachable by vector search.
+_DAMPING_EXEMPT_SECTIONS = frozenset({"availability"})
+
+
+def _length_damping(n_chars: int, reference_chars: int) -> float:
+    """Scale a similarity score down for chunks shorter than `reference_chars`.
+
+    Short text embeds to a less specific vector sitting nearer the corpus centroid, so it
+    scores moderately against *every* query and wins top-k whenever no longer chunk is a
+    strong match. Measured on a 9,913-chunk corpus with a median of 1,881 chars, 26% of
+    retrieved hits were under 300 chars against 4.0% of the corpus — a ~6x
+    over-representation that starves the synthesizer of context.
+
+    A length floor is the wrong instrument here. 73% of short chunks are the sole chunk of
+    a genuinely short section, and those are two populations length cannot separate: a
+    269-char "Code and data availability" statement (legitimate, and the one place the
+    reproducibility layer is stated plainly) versus a 162-char "This section briefly
+    provides..." stub (content-free). Damping keeps the former retrievable when it truly
+    matches while stopping the latter from crowding out substance.
+
+    Linear below the reference, 1.0 at or above it — proportional to the context a chunk
+    actually carries, with no penalty once it carries enough.
+    """
+    if reference_chars <= 0:
+        return 1.0
+    return min(1.0, n_chars / reference_chars)
+
+
 class FaissVectorStore(VectorStore):
-    def __init__(self, index_path: str, dim: int) -> None:
+    def __init__(
+        self, index_path: str, dim: int, length_damping_chars: int | None = None
+    ) -> None:
+        self._length_damping_chars = (
+            get_settings().retrieval.length_damping_chars
+            if length_damping_chars is None
+            else length_damping_chars
+        )
         self._index_path = Path(index_path)
         self._meta_path = self._index_path.with_suffix(".meta.jsonl")
         self.dim = dim
@@ -88,22 +131,31 @@ class FaissVectorStore(VectorStore):
         self._pin_faiss_to_one_thread()
         index = self._ensure_index()
         q = self._normalize(np.asarray([query_embedding], dtype="float32"))
-        # Over-fetch, then filter by corpus (flat index has no metadata filter).
+        # Over-fetch, then filter by corpus (flat index has no metadata filter). The
+        # same surplus is what makes length damping possible without a second index.
         k = min(len(self._chunks), max(top_k * 5, top_k))
         if k == 0:
             return []
         scores, idxs = index.search(q, k)
-        hits: list[SearchHit] = []
+        candidates: list[SearchHit] = []
         for score, idx in zip(scores[0], idxs[0], strict=False):
             if idx < 0:
                 continue
             chunk = self._chunks[idx]
             if chunk.corpus != corpus:
                 continue
-            hits.append(SearchHit(chunk=chunk, score=float(score)))
-            if len(hits) >= top_k:
-                break
-        return hits
+            raw = float(score)
+            factor = (
+                1.0
+                if chunk.section_type in _DAMPING_EXEMPT_SECTIONS
+                else _length_damping(len(chunk.text), self._length_damping_chars)
+            )
+            candidates.append(SearchHit(chunk=chunk, score=raw * factor, raw_score=raw))
+        # Damping reorders the pool, so it must be re-sorted before truncating. Taking
+        # the first `top_k` in index order (as an early break would) would apply the
+        # penalty without ever letting a longer chunk overtake a shorter one.
+        candidates.sort(key=lambda hit: hit.score, reverse=True)
+        return candidates[:top_k]
 
     def persist(self) -> None:
         import faiss

@@ -59,6 +59,11 @@ extraction:
   # not compute — a 29-minute sequential run used 0.2% CPU. 1 disables concurrency.
   max_workers: 8
 
+retrieval:
+  # Similarity is damped for chunks shorter than this, so short low-content chunks stop
+  # crowding out substantive ones. 0 disables. See rpsg.stores.vector_store.
+  length_damping_chars: 800
+
 chunking:
   target_tokens: 512        # per chunk (approximate; see rpsg.ingestion.chunking)
   overlap_tokens: 64

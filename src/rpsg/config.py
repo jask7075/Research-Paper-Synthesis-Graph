@@ -79,6 +79,13 @@ class Extraction(BaseModel):
     max_workers: int = 8
 
 
+class Retrieval(BaseModel):
+    #: Similarity is damped for chunks shorter than this (0 disables). Short text embeds
+    #: near the corpus centroid and so over-scores against every query; see
+    #: `rpsg.stores.vector_store._length_damping`.
+    length_damping_chars: int = 800
+
+
 class Chunking(BaseModel):
     target_tokens: int = 512
     overlap_tokens: int = 64
@@ -117,6 +124,7 @@ class Settings(BaseSettings):
     embeddings: Embeddings = Field(default_factory=Embeddings)
     extraction: Extraction = Field(default_factory=Extraction)
     chunking: Chunking = Field(default_factory=Chunking)
+    retrieval: Retrieval = Field(default_factory=Retrieval)
     eval: Eval = Field(default_factory=Eval)
 
 

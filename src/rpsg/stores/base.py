@@ -29,7 +29,12 @@ class Chunk(BaseModel):
 
 class SearchHit(BaseModel):
     chunk: Chunk
+    #: Ranking score. This is the score results are ordered by, and it may have been
+    #: adjusted after retrieval (see length damping in `rpsg.stores.vector_store`).
     score: float
+    #: Raw similarity straight from the index, before any adjustment. Kept so a
+    #: re-ranking heuristic is observable rather than hidden inside the ranking.
+    raw_score: float | None = None
 
 
 class VectorStore(ABC):
