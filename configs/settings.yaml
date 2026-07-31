@@ -16,6 +16,18 @@ models:
   # Set this to pin it explicitly; see rpsg.llm.get_chat_client.
   provider: null
 
+  # USD per 1M tokens. Used only to turn the token counts in rpsg.llm.usage into a
+  # cost figure — nothing here affects model behaviour. Rates change; re-check them
+  # before quoting a number, and treat the provider's dashboard as the truth.
+  # Recorded 2026-07-30.
+  pricing:
+    gpt-5.4-nano: {input_per_mtok: 0.20, output_per_mtok: 1.25}
+    gpt-5.4-mini: {input_per_mtok: 0.75, output_per_mtok: 4.50}
+    # Not currently used: embeddings run locally via sentence-transformers
+    # (see the `embeddings` block), so they cost nothing. Kept for the case where
+    # you swap the embedder back to the OpenAI one.
+    text-embedding-3-small: {input_per_mtok: 0.02, output_per_mtok: 0.0}
+
   # One-time offline corpus extraction. This is the bulk-call stage (one call per
   # paper section), so it gets the cheapest model.
   extraction_model: gpt-5.4-nano
