@@ -8,6 +8,7 @@ Everything this module returns is high-precision and effectively free: Paper, Au
 from __future__ import annotations
 
 import time
+from collections import Counter
 from typing import Any
 
 import httpx
@@ -116,6 +117,43 @@ class SemanticScholarClient:
 
     def close(self) -> None:
         self._client.close()
+
+
+def cocitation_hubs(
+    papers: list[S2Paper], min_cocitations: int = 10, limit: int | None = None
+) -> list[str]:
+    """Paper ids the corpus cites often but does not contain, most-cited first.
+
+    Relevance search returns papers *about* a topic, not papers that *cite each other*,
+    so it builds a citation-sparse corpus — measured at 3.66% in-corpus references over
+    240 papers, and scaling does not fix it (24 -> 240 papers moved density only 1.77% ->
+    3.66%, because the share of out-of-field references is roughly constant).
+
+    Co-citation expansion is the fix, and it is efficient for a structural reason: the
+    citations to these papers ALREADY EXIST in the corpus's reference lists, dangling
+    because the target is absent. A relevance-search paper contributes ~1.3 in-corpus
+    edges; a hub cited by 10 corpus papers contributes 10 the moment it is added.
+
+    Measured on the 240-paper corpus: `min_cocitations=10` selects 80 papers and raises
+    out-degree 1.29 -> ~5.5, past the ~2.5 needed for a 2-hop traversal to reach enough
+    papers to answer a question. Lower thresholds add more papers for little further gain
+    (>=6 gives 180 papers for out-degree 5.9) and eventually dilute.
+    """
+    in_corpus = {p.paperId for p in papers}
+    freq: Counter[str] = Counter()
+    for paper in papers:
+        for ref in paper.references:
+            ref_id = ref.get("paperId")
+            if ref_id and ref_id not in in_corpus:
+                freq[ref_id] += 1
+    hubs = [pid for pid, count in freq.most_common() if count >= min_cocitations]
+    log.info(
+        "co-citation hubs: %d papers cited by >=%d of %d corpus papers",
+        len(hubs),
+        min_cocitations,
+        len(papers),
+    )
+    return hubs[:limit] if limit else hubs
 
 
 def to_graph(papers: list[S2Paper], max_references: int = 200) -> tuple[list[Node], list[Edge]]:

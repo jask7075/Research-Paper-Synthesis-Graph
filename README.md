@@ -88,6 +88,63 @@ python scripts/05_build_stores.py
 python scripts/06_run_eval.py --system vector_fulltext
 ```
 
+## Finding: relevance search cannot build a citation-connected corpus; co-citation can
+
+Building a quantum-computing corpus from 12 Semantic Scholar relevance queries produced a
+citation graph too sparse to traverse. Adding 77 co-cited papers fixed it. Both halves are
+measured, and the second is the useful part.
+
+### The problem
+
+| 240 papers, 12 relevance queries | |
+|---|---|
+| reference entries | 8,443 (~35 / paper) |
+| pointing at a paper **inside** the corpus | **309 (3.66%)** |
+| in-corpus out-degree | **1.29** citations / paper |
+| papers with ≥1 outgoing in-corpus citation | 134 / 240 (56%) |
+| 2-hop citation neighbourhood | ~2.9 papers |
+
+**96% of references leave the corpus.** Papers cite foundational mathematics, physics, and
+machine-learning work that no topically-sampled corpus will ever contain. Relevance search
+returns papers *about* a topic, not papers that *cite each other*.
+
+Scaling does not fix this. Going from 24 → 240 papers (10×) moved density only
+1.77% → 3.66% (2×), because the share of out-of-field references is roughly constant. A
+2-hop neighbourhood reaching ~3 papers cannot answer a question needing 10–20 chunks, and
+for the 44% of papers with no outgoing in-corpus citation it returns nothing at all.
+
+### The fix
+
+Co-citation expansion: fetch the papers the corpus *already cites*. Those citations exist
+in the reference lists already, dangling because the target is absent — so each paper
+added arrives pre-connected. `scripts/01_fetch_corpus.py --expand-citations`.
+
+| | 240 papers | **+77 co-cited (317)** |
+|---|---|---|
+| in-corpus references | 3.66% | **16.68%** |
+| out-degree | 1.29 | **7.64** |
+| papers with ≥1 citation | 56% | **75%** |
+| 2-hop reach | ~2.9 papers | **~66 papers** |
+| `cites` edges in the graph | 309 | **2,333** |
+
+**77 papers bought 2,024 edges — 26 each. The preceding 216 relevance-search papers bought
+292 — 1.4 each.** An ~18× difference in edges per paper ingested, because hubs are
+selected *because* the corpus already points at them. (The most-cited absent paper was
+referenced by 77 of the 240.) Returns peak around a co-citation threshold of 6–10 and then
+dilute, so this is not a lever to pull indefinitely.
+
+Note the ordering, which matters: hubs are only identifiable *because* relevance search
+built a corpus with 8,443 references to mine first. The method is **relevance search to
+establish a field, then co-citation to connect it** — not one technique beating the other.
+
+### What this is not
+
+It is **not** evidence that typed edges outperform untyped ones. At 240 papers that
+comparison was confounded — 3,813 typed edges against 309 citation edges means a typed win
+could be explained entirely by edge count. After expansion the arms are within the same
+order of magnitude (5,738 typed vs 2,333 citation edges), which is what makes the
+Iteration-2 ablation an experiment rather than a foregone conclusion.
+
 ## Models
 
 Extraction (one-time batch, the bulk-call stage): `gpt-5.4-nano`. Judge / synthesis:

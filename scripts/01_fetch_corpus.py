@@ -24,7 +24,11 @@ import json
 
 from rpsg.config import get_settings
 from rpsg.ingestion.arxiv_client import fetch_pdf, search_arxiv
-from rpsg.ingestion.semantic_scholar import SemanticScholarClient
+from rpsg.ingestion.semantic_scholar import (
+    S2Paper,
+    SemanticScholarClient,
+    cocitation_hubs,
+)
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
@@ -32,7 +36,18 @@ log = get_logger(__name__)
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--query", required=True, help="search query")
+    ap.add_argument("--query", help="search query (not needed with --expand-citations)")
+    ap.add_argument(
+        "--expand-citations",
+        action="store_true",
+        help="fetch the papers the existing corpus cites most, instead of searching",
+    )
+    ap.add_argument(
+        "--min-cocitations",
+        type=int,
+        default=10,
+        help="with --expand-citations: how many corpus papers must cite a target",
+    )
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--no-pdf", action="store_true", help="metadata only, skip PDF download")
     ap.add_argument(
@@ -49,7 +64,34 @@ def main() -> None:
     args = ap.parse_args()
 
     settings = get_settings()
-    if args.source == "arxiv":
+    out_path = settings.paths.data_external / "papers.jsonl"
+
+    if args.expand_citations:
+        # Co-citation expansion: the citations to these papers already exist in the
+        # corpus's reference lists, dangling because the target is absent. See
+        # `cocitation_hubs` for why this beats fetching more search results.
+        if not settings.s2_api_key:
+            raise SystemExit("--expand-citations needs S2_API_KEY (it fetches by paper id).")
+        if not out_path.exists():
+            raise SystemExit(f"no corpus at {out_path} — run a search first.")
+        existing = [
+            S2Paper(**json.loads(line)) for line in out_path.read_text().splitlines() if line
+        ]
+        hub_ids = cocitation_hubs(existing, args.min_cocitations, limit=args.limit)
+        if not hub_ids:
+            raise SystemExit(f"no papers cited by >={args.min_cocitations} of the corpus.")
+        client = SemanticScholarClient(api_key=settings.s2_api_key)
+        papers = []
+        for pid in hub_ids:
+            try:
+                papers.append(client.get_paper(pid))
+            except Exception as exc:  # noqa: BLE001 - one missing hub must not stop the rest
+                log.warning("could not fetch hub %s: %s", pid, exc)
+        client.close()
+        log.info("fetched %d/%d hub papers", len(papers), len(hub_ids))
+    elif args.source == "arxiv":
+        if not args.query:
+            raise SystemExit("--query is required unless --expand-citations is used.")
         papers = search_arxiv(
             args.query,
             limit=args.limit,
@@ -58,6 +100,8 @@ def main() -> None:
             sort=args.sort,
         )
     else:
+        if not args.query:
+            raise SystemExit("--query is required unless --expand-citations is used.")
         if not settings.s2_api_key:
             raise SystemExit(
                 "S2_API_KEY is not set. The unauthenticated Semantic Scholar pool returns a "
@@ -68,7 +112,7 @@ def main() -> None:
         client.close()
 
     settings.paths.data_external.mkdir(parents=True, exist_ok=True)
-    out = settings.paths.data_external / "papers.jsonl"
+    out = out_path
     # Append (dedup by paperId) so multiple queries build one corpus.
     seen = set()
     if out.exists():
