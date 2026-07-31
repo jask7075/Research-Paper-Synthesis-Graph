@@ -17,11 +17,60 @@ what's still open?"*
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 
-**Status — Iteration 1 (complete):** the ingestion → chunk → extract → store pipeline plus
-the eval-first harness. The deterministic core (schema, chunking, metrics, calibration,
-store interfaces) is verified by 19/19 unit tests. Wire in `OPENAI_API_KEY` /
-`S2_API_KEY` to run the LLM stages. Iterations 2–3 add the typed graph, the planner–critic
-loop, and the four extensions.
+## Status
+
+**The pipeline runs end to end on a real corpus. The exit criterion is not yet met** — it
+requires a scored run against a real gold query set, and the gold set is still being
+written (the committed one holds placeholder paper ids). Stated plainly because the
+distinction matters: the system works, but nothing here is a measured *claim* yet.
+
+Built and verified by running it:
+
+| | |
+|---|---|
+| corpus | 317 papers (Semantic Scholar metadata), 249 with full text |
+| sections / chunks | 5,229 sections → 9,913 chunks |
+| typed graph | 23,460 nodes, 10,660 edges (Kuzu) |
+| citation layer | 2,333 `cites` edges, in-corpus out-degree 7.64 |
+| vector index | 9,913 chunks, SPECTER embeddings (faiss) |
+| extraction cost | $5.60 total, ~2¢/paper (`gpt-5.4-nano`, 4,800 calls) |
+| query cost | ~$0.005 (`ask.py`, retrieve + synthesise) |
+| tests | 25 passing; ruff + mypy clean in CI |
+
+Ask it something with [`scripts/ask.py`](scripts/ask.py); inspect what the parser sees with
+[`scripts/inspect_pdf.py`](scripts/inspect_pdf.py); run the whole thing with
+[`scripts/run_pipeline.py`](scripts/run_pipeline.py).
+
+**Outstanding for Iteration 1**
+
+- **Gold query set** — in progress. Until then `scripts/06_run_eval.py` runs but its
+  deterministic metrics are meaningless (`must_cite_recall` scores against placeholder ids).
+- **Judge calibration** — `rpsg.eval.calibration` is implemented and unit-tested; no
+  driver runs it, so judge scores are uncalibrated and should not be quoted.
+- **`extraction_gold` / `repro_gold`** — schemas exist by example, unpopulated. So every
+  statement about extraction *quality* below is an inspection, not a measurement.
+
+**Known limitations, measured**
+
+- **No entity resolution.** Node ids are slugified surface names, so `random circuits` and
+  `Random Parameterized Quantum Circuits (RPQCs)` remain distinct nodes. Identical strings
+  do collapse (605 `Method` duplicates merged on store), which is partial and accidental.
+  Iteration 2.
+- **`refutes` / `undercuts` are near-empty** (4 and 24 edges across 249 papers). This is
+  structural, not a tuning gap: extraction runs per-section within one paper, and a paper
+  rarely refutes itself. Cross-paper contradictions need a second pass over extracted
+  claims — Iteration 2, with entity resolution.
+- **`Hardware` is sparse** (8 nodes / 6 papers). Most quantum-computing papers simply do
+  not report hardware specifications, so extension #4's ceiling is set by the literature
+  rather than by extraction.
+- **52% of sections type as `other`.** Most are genuine domain subsections ("The role of
+  measurements") that no keyword scheme will classify; they fall back to the default node
+  types. GROBID would improve this and is preferred when reachable — the bundled fallback
+  exists because GROBID ships amd64-only and cannot spawn `pdfalto` under Apple-Silicon
+  emulation.
+
+**Next (Iteration 2):** entity resolution for Method/Problem nodes, the typed-graph
+retrieval system, and the citation-graph ablation.
 
 ## Design principles (why the code is shaped this way)
 
@@ -50,12 +99,17 @@ data/               raw → interim → processed  (git-ignored; cookiecutter-ds
 src/rpsg/
   config.py         pydantic-settings; single source of runtime config
   ingestion/        Semantic Scholar / ArXiv fetch, PDF→sections, section-aware chunking
-  llm/              provider-neutral ChatClient (OpenAI / Anthropic adapters)
+  llm/              provider-neutral ChatClient (OpenAI / Anthropic) + token accounting
   extraction/       frozen tiered schema + prompts + API-based extractor
   stores/           GraphStore / VectorStore interfaces + Kuzu / local adapters
   retrieval/        baselines (vector-abstract, vector-fulltext)
   eval/             gold schema, deterministic metrics, LLM judge, calibration, runner
-scripts/            numbered pipeline entrypoints (01_… → 06_…)
+scripts/            numbered pipeline entrypoints (01_… → 06_…) plus these tools:
+  run_pipeline.py     sequence 01–06 with preflight checks and per-stage accounting
+  ask.py              ask the corpus a question (retrieve + synthesise)
+  inspect_pdf.py      dry-run one PDF: sections, chunks, and extraction routing
+  report_state.py     regenerate docs/pipeline-state.md from what is on disk
+docs/pipeline-state.md  a generated snapshot of the numbers below
 eval/gold/          gold query set + extraction/reproducibility ground truth (jsonl)
 eval/runs/          per-run outputs (answers, traces, scores)
 tests/              unit tests for the deterministic core
@@ -86,6 +140,23 @@ python scripts/05_build_stores.py
 
 # 6. Score the vector-fulltext baseline against the gold set (needs OPENAI_API_KEY)
 python scripts/06_run_eval.py --system vector_fulltext
+```
+
+Or drive the whole thing, with every prerequisite checked before any work happens:
+
+```bash
+python scripts/run_pipeline.py --query "variational quantum eigensolver" --limit 200
+python scripts/run_pipeline.py --from 02 --to 04          # resume mid-pipeline
+python scripts/run_pipeline.py --dry-run                  # plan + preflight only
+```
+
+Then ask it something, or look at what the parser sees:
+
+```bash
+python scripts/ask.py "what mitigates barren plateaus?"
+python scripts/ask.py "..." --retrieval-only              # no LLM call, no cost
+python scripts/inspect_pdf.py data/raw/pdfs/<paper_id>.pdf
+python scripts/report_state.py --format html              # printable state report
 ```
 
 ## Finding: relevance search cannot build a citation-connected corpus; co-citation can
@@ -159,17 +230,6 @@ routes to the Anthropic adapter instead. Set `models.provider` to override the i
 Caveat worth knowing: judge and synthesis currently share a family, so self-preference
 bias in the judge is unmitigated. That's fine while no comparative claim rests on the
 judge scores — revisit before reporting an ablation number.
-
-## Status
-
-**Iteration 1 — complete.** Deterministic core (schema, chunking, metrics, calibration,
-store interfaces) is implemented and verified (`make test` → 19/19). External-service
-modules (S2 / ArXiv / GROBID / extractor / judge) are implemented against real signatures;
-wire in your keys/services to run them.
-
-**Next (Iteration 2):** entity resolution for Method/Problem nodes, the typed-graph
-retrieval system, and the citation-graph ablation — so the by-query-type comparison is
-ready the moment extraction lands.
 
 ## License
 

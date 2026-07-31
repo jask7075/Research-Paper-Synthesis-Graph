@@ -37,3 +37,5 @@ eval/runs/*
 
 # LaTeX paper source (kept local, not pushed)
 research-paper-synthesis-graph.tex
+# Generated state reports; one snapshot lives at docs/pipeline-state.md
+reports/
