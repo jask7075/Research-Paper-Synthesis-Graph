@@ -19,34 +19,85 @@ what's still open?"*
 
 ## Status
 
-**The pipeline runs end to end on a real corpus. The exit criterion is not yet met** — it
-requires a scored run against a real gold query set, and the gold set is still being
-written (the committed one holds placeholder paper ids). Stated plainly because the
-distinction matters: the system works, but nothing here is a measured *claim* yet.
+**The exit criterion is met.** `vector_fulltext` has been scored end to end against a
+10-query gold set whose paper ids all resolve to indexed papers, and the judge has been
+calibrated against hand-assigned grades. Two of five judge criteria clear the agreement
+threshold; the other three do not and are named below. The baseline is weak — that is the
+result, not a caveat about it.
 
 Built and verified by running it:
 
 | | |
 |---|---|
-| corpus | 317 papers (Semantic Scholar metadata), 249 with full text |
-| sections / chunks | 5,229 sections → 9,913 chunks |
+| corpus | 353 papers (Semantic Scholar metadata), 270 with full text |
+| sections / chunks | 5,767 sections → 10,993 chunks (10,725 full-text, 268 abstract) |
 | typed graph | 23,460 nodes, 10,660 edges (Kuzu) |
-| citation layer | 2,333 `cites` edges, in-corpus out-degree 7.64 |
-| vector index | 9,913 chunks, SPECTER embeddings (faiss) |
-| extraction cost | $5.60 total, ~2¢/paper (`gpt-5.4-nano`, 4,800 calls) |
-| query cost | ~$0.005 (`ask.py`, retrieve + synthesise) |
-| tests | 25 passing; ruff + mypy clean in CI |
+| citation layer | 2,333 `cites` edges |
+| vector index | 10,993 chunks, SPECTER embeddings (faiss) |
+| gold query set | 10 queries — 4 relational, 3 refutation, 2 lookup, 1 open-directions |
+| extraction cost | ~2.8¢/paper — 21 papers, 507 calls, $0.58 (`gpt-5.4-nano`, measured) |
+| eval run cost | $0.19 for 10 queries — 20 calls (`gpt-5.4-mini`, synthesis + judge) |
+| tests | 42 passing; ruff + mypy clean in CI |
+
+`rpsg.llm.usage` accumulates token counts in-process and prints a table at the end of a
+run; it does not persist. The per-paper figure above is measured over the 21 papers
+extracted in the two runs that produced the current corpus — the whole-corpus total was
+never captured and is not recoverable without a full re-extraction.
+
+**Iteration 1 result** — run `eval/runs/20260804T221802Z_vector_fulltext`:
+
+| deterministic metric | mean |
+|---|---|
+| `must_cite_recall` | 0.217 |
+| `citation_precision` | 0.150 |
+| `key_claim_source_recall` | 0.167 |
+| `refutation_surfaced` | 0.700 — but see below; the honest figure is 0 of 3 |
+
+`refutation_surfaced` returns `1.0` for queries that have no `known_refutations`, and 7 of
+10 qualify. All three queries that *do* encode a contradiction scored 0.00. The 0.700 is an
+artifact of the metric's default, not a capability.
+
+| judge criterion | human | judge | QWK | trusted |
+|---|---|---|---|---|
+| `coverage` | 2.10 | 2.40 | +0.68 | yes |
+| `hedging_accuracy` | 4.00 | 3.60 | +0.67 | yes |
+| `synthesis` | 3.20 | 2.50 | +0.53 | no |
+| `attribution` | 1.80 | 2.60 | +0.02 | no |
+| `refutation_handling` | 3.33 | 3.00 | +0.57 (n=3) | no |
+
+Headline number: judge **`coverage` 2.4 / 5**, the one criterion that both passed
+calibration and is what the gold `facets` were written to test.
+
+Three criteria are untrusted for distinct reasons. `attribution` (κ=+0.02, ρ=+0.04,
+p=0.92 — no relationship at all) is an instrument defect rather than a judge defect: the
+judge scores it with the retrieved context in its prompt, while `traces.jsonl` records only
+`evidence_chars`, so the human grader had no way to see the same evidence. `synthesis`
+tracks the human ranking closely (ρ=+0.88) but sits ~0.7 lower on the scale — an offset,
+not a disagreement. `refutation_handling` has n=3, which cannot support a kappa; treat it
+as unmeasured rather than as a near miss.
+
+**Why the baseline is weak: retrieval, diagnosed.** Of the 9 distinct papers the gold set
+requires, 5 never appear in any query's top-20 — including the D-Wave community-detection
+paper required by 4 queries. This is not an indexing failure: targeted probes pull each of
+them to rank 1. The index holds 270 papers of which ~88% are quantum VQE / error-correction
+work that no gold query asks about, and under natural query phrasing that mass outranks the
+36 community-detection papers the queries actually target.
 
 Ask it something with [`scripts/ask.py`](scripts/ask.py); inspect what the parser sees with
 [`scripts/inspect_pdf.py`](scripts/inspect_pdf.py); run the whole thing with
 [`scripts/run_pipeline.py`](scripts/run_pipeline.py).
 
-**Outstanding for Iteration 1**
+**Carried into Iteration 2**
 
-- **Gold query set** — in progress. Until then `scripts/06_run_eval.py` runs but its
-  deterministic metrics are meaningless (`must_cite_recall` scores against placeholder ids).
-- **Judge calibration** — `rpsg.eval.calibration` is implemented and unit-tested; no
-  driver runs it, so judge scores are uncalibrated and should not be quoted.
+- **`traces.jsonl` records no evidence text**, only `evidence_chars`. This is what makes
+  `attribution` uncalibratable — the human grader cannot see what the judge saw. Fixing it
+  gates any future attribution claim.
+- **Corpus / gold-set mismatch.** The index spans two disjoint literatures and the gold set
+  addresses only one, which is the diagnosed cause of the retrieval misses above. Either
+  scope the index or widen the gold set before reading much into the baseline.
+- **Calibration is underpowered.** n=10 for four criteria, n=3 for `refutation_handling`.
+  Scoring a second system against the same gold set would double the graded pairs without
+  writing new gold.
 - **`extraction_gold` / `repro_gold`** — schemas exist by example, unpopulated. So every
   statement about extraction *quality* below is an inspection, not a measurement.
 
@@ -56,7 +107,7 @@ Ask it something with [`scripts/ask.py`](scripts/ask.py); inspect what the parse
   `Random Parameterized Quantum Circuits (RPQCs)` remain distinct nodes. Identical strings
   do collapse (605 `Method` duplicates merged on store), which is partial and accidental.
   Iteration 2.
-- **`refutes` / `undercuts` are near-empty** (4 and 24 edges across 249 papers). This is
+- **`refutes` / `undercuts` are near-empty** (4 and 24 edges across 270 papers). This is
   structural, not a tuning gap: extraction runs per-section within one paper, and a paper
   rarely refutes itself. Cross-paper contradictions need a second pass over extracted
   claims — Iteration 2, with entity resolution.

@@ -1,0 +1,60 @@
+# Reference list from Kaur (2026), "Using Error-Correcting Codes to Encode Colors in the
+# Graph Community Detection Problem". Ids are taken verbatim from the thesis bibliography.
+# Fetch with:  python scripts/01_fetch_corpus.py --ids-file eval/gold/thesis_refs.txt
+#
+# Books, Wikipedia entries, and software repos are omitted: they have no S2 open-access
+# PDF, so they would enter papers.jsonl as metadata and then produce zero chunks.
+# Omitted refs: [1] Ising (wiki), [8] Qiskit Aer (repo), [9] Costa MSc thesis,
+# [17][18] Ginsburg, [28] Knuth, [36] Nielsen & Chuang, [37] Pless, [43] Wasserman &
+# Faust, [46] Qubit (wiki), [47] Wolsey, [48] Wong.
+
+# --- QAOA / quantum optimization ---
+arXiv:1411.4028                          # [13] Farhi, Goldstone, Gutmann - QAOA
+arXiv:quant-ph/0001106                   # [12] Farhi et al. - adiabatic evolution
+arXiv:2306.09198                         # [3]  Blekos et al. - QAOA review
+DOI:10.1371/journal.pone.0227538         # [33] Negre et al. - D-Wave multiple communities
+DOI:10.1103/PhysRevA.101.012320          # [42] Wang et al. - XY mixers
+
+# --- modularity and community detection ---
+DOI:10.1073/pnas.122653799               # [19] Girvan & Newman - community structure
+DOI:10.1073/pnas.0601602103              # [34] Newman - modularity matrix
+DOI:10.1103/PhysRevE.69.026113           # [35] Newman & Girvan - finding/evaluating
+DOI:10.1016/j.physrep.2009.11.002        # [14] Fortunato - community detection survey
+DOI:10.1073/pnas.0605965104              # [15] Fortunato & Barthelemy - resolution limit
+
+# --- graph partitioning / spectral ---
+DOI:10.1002/j.1538-7305.1970.tb01770.x   # [25] Kernighan & Lin
+DOI:10.1137/0611030                      # [38] Pothen et al. - spectral partitioning
+DOI:10.1016/j.laa.2014.02.022            # [41] Urschel & Zikatanov - spectral bisection
+
+# --- benchmarks and generative models ---
+DOI:10.1103/PhysRevE.78.046110           # [29] Lancichinetti et al. - LFR
+DOI:10.1103/PhysRevE.80.016118           # [30] Lancichinetti et al. - directed/weighted LFR
+DOI:10.1017/nws.2020.19                  # [24] Kaminski et al. - ABCD
+DOI:10.1016/0378-8733(83)90021-7         # [23] Holland et al. - stochastic blockmodels
+Algorithms for graph partitioning on the planted partition model   # [7] Condon & Karp
+
+# --- benchmark networks ---
+DOI:10.2307/1943071                      # [2]  Baird & Ulanowicz - Chesapeake Bay
+DOI:10.1142/S0219525903001067            # [20] Gleiser & Danon - jazz
+DOI:10.1038/30918                        # [44] Watts & Strogatz - small-world
+DOI:10.1103/PhysRevE.70.056122           # [4]  Boguna et al. - social distance attachment
+DOI:10.1145/1217299.1217301              # [31] Leskovec et al. - graph evolution
+DOI:10.1145/1298306.1298311              # [32] Mislove et al. - online social networks
+DOI:10.1137/080734315                    # [40] Traud et al. - Facebook100
+DOI:10.1145/2808797.2808879              # [49] Yang & Leskovec - ground-truth communities
+DOI:10.1007/978-3-540-30115-8_22         # [27] Klimt & Yang - Enron corpus
+DOI:10.1111/0081-1750.00098              # [45] White & Harary - structural cohesion
+
+# --- error-correcting codes and categorical encoding ---
+DOI:10.1002/j.1538-7305.1950.tb00463.x   # [22] Hamming - error detecting/correcting codes
+arXiv:2410.07840                         # [16] Garcia et al. - ECC in generative models
+arXiv:1604.06737                         # [21] Guo & Berkhahn - entity embeddings
+arXiv:2401.09682                         # [50] Zhu et al. - categorical encoding study
+DOI:10.1007/s10994-018-5724-2            # [6]  Cerda et al. - similarity encoding
+The role of codeword-to-class assignments in error-correcting codes   # [11] Evron et al.
+
+# --- optimizers ---
+DOI:10.1137/0916069                      # [5]  Byrd et al. - L-BFGS-B
+DOI:10.1126/science.220.4598.671         # [26] Kirkpatrick et al. - simulated annealing
+DOI:10.1007/978-94-015-8330-5_4          # [39] Powell - COBYLA
