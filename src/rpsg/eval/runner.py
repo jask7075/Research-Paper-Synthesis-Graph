@@ -79,9 +79,21 @@ def run_system(
             answer = Answer(qid=g.qid, text=out.text, cited_paper_ids=cited)
 
             answers_fh.write(answer.model_dump_json() + "\n")
+            # `evidence` itself, not just its length. The judge scores `attribution`
+            # with the retrieved context in its prompt; a human grader reading only
+            # the answer is judging whether claims *look* sourced while the judge
+            # checks whether they *are*. Calibrating one against the other then
+            # measures the asymmetry rather than the judge: on the first calibrated
+            # run that criterion came back at kappa=+0.02, rho=+0.04, p=0.92 — no
+            # relationship at all — while the other four correlated strongly.
             traces_fh.write(
                 json.dumps(
-                    {"qid": g.qid, "system": system.name, "evidence_chars": len(out.evidence)}
+                    {
+                        "qid": g.qid,
+                        "system": system.name,
+                        "evidence": out.evidence,
+                        "evidence_chars": len(out.evidence),
+                    }
                 )
                 + "\n"
             )

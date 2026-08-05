@@ -59,7 +59,7 @@ class VectorRAGSystem:
         embedder: Embedder,
         store: VectorStore,
         corpus: str,
-        top_k: int = 20,
+        top_k: int = 60,
         synthesis_model: str | None = None,
     ) -> None:
         self.name = name

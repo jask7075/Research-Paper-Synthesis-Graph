@@ -29,7 +29,7 @@ _CORPUS = {"vector_abstract": "abstract", "vector_fulltext": "fulltext"}
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--system", choices=list(_CORPUS), default="vector_fulltext")
-    ap.add_argument("--top-k", type=int, default=20)
+    ap.add_argument("--top-k", type=int, default=60)
     ap.add_argument("--no-judge", action="store_true")
     ap.add_argument("--hash-embed", action="store_true", help="offline embedder (smoke test)")
     args = ap.parse_args()
