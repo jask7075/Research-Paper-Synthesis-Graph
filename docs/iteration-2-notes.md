@@ -137,3 +137,73 @@ the bug rather than the component.
 **Order matters:** re-extract *before* any extraction-precision audit. The fix changes the
 prompt for `method`, `results` and `availability`, so an audit sampled beforehand would be
 invalidated by it.
+---
+
+## 2.15 `repro_gold` — schema and scorer done, gold partial
+
+**Schema** (`rpsg.eval.repro_gold`) expresses three states, where the old file had one:
+
+    a value          the paper states it     -> the system must find it
+    "not_reported"   the paper is silent     -> the system must stay silent
+    null             gold not established    -> skipped, not scored
+
+The middle state is what made the previous `repro_gold.jsonl` unscoreable: `null` meant
+both "the paper says nothing" and "nobody has checked", so a system inventing a qubit
+count could not be told apart from one correctly reporting none. Same defect as the
+metric defaults fixed in 2.4, corrected the same way.
+
+Six outcomes rather than one accuracy figure — `correct`, `wrong`, `missed`,
+`hallucinated`, `correct_absence`, `skipped`. `missed` and `hallucinated` are opposite
+failures and a single number merges them.
+
+Field set is quantum-shaped (`quantum_vendor`, `device_name`, `qubit_count` lead) because
+the corpus is: `qubit_count` appears in 151 of 242 `Hardware` nodes against `gpu_type` in
+107. The scorer also absorbs an extraction quirk — the model writes the literal string
+`"unknown"` into fields it cannot answer, so `"unknown"`, `"n/a"`, `""` and `None` all
+read as silence and score `missed` rather than `wrong`.
+
+`scripts/author_repro_gold.py --show` prints a paper's passages and deliberately **not**
+its extraction. Confirming the system's own output would drive accuracy toward 1.0 by
+construction — the circularity `author_gold.py` avoids by using BM25 rather than the
+system's retriever.
+
+**First audit — 20 papers, 25 scoreable fields:**
+
+| outcome | n |
+|---|---|
+| correct | 2 |
+| correct_absence | 17 |
+| wrong | 2 |
+| missed | 4 |
+| hallucinated | **0** |
+
+**76% accuracy, but 17 of the 19 correct answers are correct silences.** On the 8 fields
+where a paper actually states something the system got 2 — **25%**. Quote both figures;
+the aggregate alone would make a system that mostly says nothing look strong.
+
+Zero hallucinations across 17 fields the papers are silent on is a real result: the
+extractor fills unanswerable fields with `"unknown"` rather than with plausible fiction.
+
+**Gold is 25 of 140 fields (18%).** 12 of 20 records are still entirely null.
+
+Two gold-design rules were settled by hand and need applying consistently to the rest:
+a survey's cited hardware **does** count (`quantum_vendor: IBM` on a review paper), and a
+GPU vendor without a model number **does** fill `device_name` ("NVIDIA and AMD GPU").
+
+## QUEUED: prompt change awaiting the next re-extraction
+
+`Hardware` added to the **`abstract`** routing entry. Not yet reflected in any graph — the
+extraction on disk predates it.
+
+The audit found it. `91c10ab4c5` scored **0 of 3** on Google / Sycamore / 23 qubits with
+the abstract reading "the Google Sycamore superconducting qubit quantum processor" and
+"over 23 qubits". The 2.4 routing fix reached `method`, `results` and `availability` and
+took the corpus from 12 `Hardware` nodes to 242 — and still could not see the single
+clearest device statement in the sample, because it lives in the abstract.
+
+The lesson generalises: routing has to follow where papers *actually* state things, not
+where a reader would expect the detail to live.
+
+**Cost to realise: ~$6.30 and ~70 minutes** for 270 papers. Batch it with any other prompt
+change rather than re-extracting for this alone. Until it runs, the `Hardware` counts and
+the 25%-on-stated-fields figure both stand as measured under the old routing.

@@ -31,13 +31,16 @@ def test_every_node_type_is_reachable_from_some_section() -> None:
     assert not unreachable, f"no section asks for: {sorted(t.value for t in unreachable)}"
 
 
-@pytest.mark.parametrize("section", ["method", "results", "availability", "appendix"])
+@pytest.mark.parametrize("section", ["abstract", "method", "results", "availability", "appendix"])
 def test_hardware_is_askable_where_papers_state_it(section: str) -> None:
-    """Experimental setup, run configuration and availability statements all name devices."""
+    """Experimental setup, run configuration and availability statements all name devices —
+    and so does the abstract, which is where the headline device usually appears. A
+    repro_gold audit scored one paper 0/3 on Google/Sycamore/23-qubits because that
+    sentence lives in the abstract and Hardware was unreachable from there."""
     assert NodeType.HARDWARE in _nodes_for(section)
 
 
-@pytest.mark.parametrize("section", ["method", "results", "availability", "appendix"])
+@pytest.mark.parametrize("section", ["abstract", "method", "results", "availability", "appendix"])
 def test_the_repro_hint_follows_hardware(section: str) -> None:
     """The hint carries the `qubit_count` / vendor instruction; it is useless where
     `Hardware` cannot be extracted, and required wherever it can."""

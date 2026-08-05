@@ -27,9 +27,15 @@ Rules:
 
 # Which types each section is asked to produce.
 _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
+    # `Hardware` here because the abstract is where a paper names its headline device:
+    # "the Google Sycamore superconducting qubit quantum processor ... over 23 qubits" is
+    # an abstract sentence, and the repro_gold audit scored that paper 0/3 with the device
+    # stated that plainly. Adding Hardware to method/results/availability took the corpus
+    # from 12 nodes to 242, and still missed it — the routing has to follow where papers
+    # actually state things, not where a reader would expect the detail to live.
     "abstract": (
-        [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM],
-        [EdgeType.ADDRESSES],
+        [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM, NodeType.HARDWARE],
+        [EdgeType.ADDRESSES, EdgeType.REQUIRES],
     ),
     "introduction": (
         [NodeType.PROBLEM, NodeType.METHOD, NodeType.CLAIM],
