@@ -1,10 +1,16 @@
 """Run a system over the gold set and produce a scored, timestamped run.
 
 Outputs (under eval/runs/<run_id>/):
-    answers.jsonl   one Answer per query (text + cited paper ids)
-    traces.jsonl    per-query trace (retrieved evidence, latency) for trajectory eval
-    scores.jsonl    deterministic metrics + judge scores per query
-    report.md       aggregate + BY-QUERY-TYPE table (the headline)
+    answers.jsonl     one Answer per query (text + cited paper ids)
+    traces.jsonl      per-query trace (retrieved evidence, latency) for trajectory eval
+    scores.jsonl      deterministic metrics + judge scores per query
+    violations.jsonl  Level-1 well-formedness failures (see rpsg.eval.wellformed)
+    report.md         aggregate + BY-QUERY-TYPE table (the headline)
+
+Well-formedness is checked before the metrics are read, and reported at the top of
+`report.md`, because a malformed answer makes its own scores meaningless — an empty answer
+scores `must_cite_recall = 0.0` exactly like a careful wrong answer, and averaging the two
+hides a bug inside a quality number.
 
 `run_id` is passed in (scripts stamp it) because scripts must not call datetime at import
 time in surprising ways — keep time at the edge.
@@ -16,10 +22,17 @@ import json
 import re
 from pathlib import Path
 
+from rpsg.config import get_settings
 from rpsg.eval.calibration import CalibrationReport
 from rpsg.eval.gold_schema import GoldRecord, QueryType
 from rpsg.eval.judge import CRITERIA, Judge
 from rpsg.eval.metrics import Answer, deterministic_scores
+from rpsg.eval.wellformed import (
+    Violation,
+    check_answer,
+    load_corpus_paper_ids,
+    summarize,
+)
 from rpsg.logging import get_logger
 from rpsg.retrieval.baselines import System
 
@@ -39,15 +52,26 @@ def run_system(
     run_dir: Path,
     *,
     use_judge: bool = True,
+    corpus_ids: set[str] | None = None,
 ) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     judge = Judge() if use_judge else None
+    if corpus_ids is None:
+        corpus_ids = load_corpus_paper_ids(
+            get_settings().paths.data_external / "papers.jsonl"
+        )
+    if not corpus_ids:
+        # Explicit, because silently skipping the hallucinated-citation check is exactly
+        # the kind of gap that makes a clean report untrustworthy.
+        log.warning("no corpus manifest found — the unknown_paper check will be skipped")
 
     answers_fh = (run_dir / "answers.jsonl").open("w")
     traces_fh = (run_dir / "traces.jsonl").open("w")
     scores_fh = (run_dir / "scores.jsonl").open("w")
+    violations_fh = (run_dir / "violations.jsonl").open("w")
 
     all_scores: list[dict] = []
+    all_violations: list[Violation] = []
     try:
         for g in gold:
             out = system.answer(g.query)
@@ -62,6 +86,12 @@ def run_system(
                 + "\n"
             )
 
+            violations = check_answer(answer, corpus_ids=corpus_ids or None)
+            for v in violations:
+                violations_fh.write(v.model_dump_json() + "\n")
+                log.warning("%s", v)
+            all_violations.extend(violations)
+
             det = deterministic_scores(answer, g)
             row: dict = {"qid": g.qid, "query_type": g.query_type.value, **det}
             if judge is not None:
@@ -74,8 +104,9 @@ def run_system(
         answers_fh.close()
         traces_fh.close()
         scores_fh.close()
+        violations_fh.close()
 
-    _write_report(system.name, all_scores, run_dir / "report.md")
+    _write_report(system.name, all_scores, run_dir / "report.md", all_violations)
     return run_dir
 
 
@@ -83,7 +114,12 @@ def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else float("nan")
 
 
-def _write_report(system_name: str, scores: list[dict], path: Path) -> None:
+def _write_report(
+    system_name: str,
+    scores: list[dict],
+    path: Path,
+    violations: list[Violation] | None = None,
+) -> None:
     if not scores:
         path.write_text(f"# {system_name}\n\nNo scores.\n")
         return
@@ -96,7 +132,12 @@ def _write_report(system_name: str, scores: list[dict], path: Path) -> None:
         )
         return header + body
 
-    lines = [f"# Eval report — {system_name}\n", f"Queries: {len(scores)}\n", "## Overall\n"]
+    lines = [f"# Eval report — {system_name}\n", f"Queries: {len(scores)}\n"]
+    # First, not last: every mean below is computed over these answers, so whether any of
+    # them were malformed determines how much the means are worth.
+    lines.append("## Well-formedness (Level 1)\n")
+    lines.append(summarize(violations or []))
+    lines.append("\n## Overall\n")
     lines.append(table(scores))
     lines.append("\n## By query type (the headline — relational is where the graph earns it)\n")
     for qt in QueryType:

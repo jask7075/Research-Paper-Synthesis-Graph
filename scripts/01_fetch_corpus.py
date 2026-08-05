@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
+from pathlib import Path
 
 from rpsg.config import get_settings
 from rpsg.ingestion.arxiv_client import fetch_pdf, search_arxiv
@@ -32,6 +34,14 @@ from rpsg.ingestion.semantic_scholar import (
 from rpsg.logging import get_logger
 
 log = get_logger(__name__)
+
+#: S2 accepts a bare 40-hex paperId or an `<external-id>:<value>` form. Anything else in
+#: an --ids-file line is treated as a title to look up.
+_ID_PREFIXES = ("arxiv:", "doi:", "corpusid:", "mag:", "acl:", "pmid:", "pmcid:", "url:")
+
+
+def _looks_like_id(line: str) -> bool:
+    return line.lower().startswith(_ID_PREFIXES) or bool(re.fullmatch(r"[0-9a-f]{40}", line))
 
 
 def main() -> None:
@@ -47,6 +57,11 @@ def main() -> None:
         type=int,
         default=10,
         help="with --expand-citations: how many corpus papers must cite a target",
+    )
+    ap.add_argument(
+        "--ids-file",
+        help="fetch a named reading list: one S2 id (arXiv:1411.4028, DOI:10.1371/...) "
+        "or bare paper title per line; '#' starts a comment",
     )
     ap.add_argument("--limit", type=int, default=50)
     ap.add_argument("--no-pdf", action="store_true", help="metadata only, skip PDF download")
@@ -89,6 +104,33 @@ def main() -> None:
                 log.warning("could not fetch hub %s: %s", pid, exc)
         client.close()
         log.info("fetched %d/%d hub papers", len(papers), len(hub_ids))
+    elif args.ids_file:
+        # A hand-curated reading list, not a search: every line is one paper you already
+        # chose. Unresolvable lines are logged and skipped so one bad title cannot sink
+        # the batch — check the log before trusting the corpus is complete.
+        if not settings.s2_api_key:
+            raise SystemExit("--ids-file needs S2_API_KEY (it fetches by id).")
+        client = SemanticScholarClient(api_key=settings.s2_api_key)
+        papers = []
+        for raw in Path(args.ids_file).read_text().splitlines():
+            line = raw.split(" #", 1)[0].strip()
+            if not line or line.startswith("#"):
+                continue
+            try:
+                if _looks_like_id(line):
+                    papers.append(client.get_paper(line))
+                else:
+                    # Title lookup: S2 relevance search, best hit only. Logged so a
+                    # wrong match is visible rather than silently entering the corpus.
+                    hits = client.search(line, limit=1)
+                    if not hits:
+                        raise ValueError("no title match")
+                    log.info("title %r -> %r", line[:50], (hits[0].title or "")[:50])
+                    papers.append(hits[0])
+            except Exception as exc:  # noqa: BLE001 - skip the entry, keep the batch
+                log.warning("could not resolve %r: %s", line, exc)
+        client.close()
+        log.info("resolved %d papers from %s", len(papers), args.ids_file)
     elif args.source == "arxiv":
         if not args.query:
             raise SystemExit("--query is required unless --expand-citations is used.")

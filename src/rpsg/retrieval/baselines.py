@@ -142,10 +142,13 @@ class VectorRAGSystem:
             return SystemOutput("No relevant evidence was retrieved.", [], "")
         evidence, handles = self._format_evidence(hits)
         text, cited = self._resolve_handles(self._synthesize(query, evidence), handles)
-        # Fall back to everything retrieved only when the model cited nothing at all,
-        # so `citation_precision` still has a denominator.
-        return SystemOutput(
-            text=text,
-            cited_paper_ids=cited or sorted(set(handles.values())),
-            evidence=evidence,
-        )
+        # `cited` is reported as-is, including empty. An earlier version fell back to
+        # every retrieved paper when the model cited nothing, on the reasoning that
+        # `citation_precision` needed a denominator — it does not, it returns 1.0 for an
+        # uncited answer by design. The fallback instead credited the answer with citing
+        # everything retrieved, so an answer that cited *nothing* scored
+        # `must_cite_recall = 1.0` whenever retrieval had found the required papers, and
+        # `wellformed.check_answer` could not see the failure either because the ids were
+        # already backfilled. Reporting the truth makes recall 0.0 and raises
+        # `no_citations`, which is what a total attribution failure should look like.
+        return SystemOutput(text=text, cited_paper_ids=cited, evidence=evidence)
