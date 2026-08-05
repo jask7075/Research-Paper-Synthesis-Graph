@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from rpsg.eval.gold_schema import GoldRecord, KeyClaim, QueryType
+from rpsg.eval.gold_schema import GoldRecord, KeyClaim, QueryType, RefutationPair
 from rpsg.eval.runner import run_system
 from rpsg.retrieval.baselines import SystemOutput
 
@@ -101,3 +101,32 @@ def test_a_broken_answer_is_recorded_as_a_violation(tmp_path: Path):
     violations = _rows(tmp_path / "violations.jsonl")
     assert violations, "an empty answer must produce a violation"
     assert all(v["qid"] == "q1" for v in violations)
+
+def test_inapplicable_metrics_are_null_not_credited(tmp_path: Path):
+    """A gold record with no contradiction must not score `refutation_surfaced` at all."""
+    gold = GoldRecord(
+        qid="q1", query="q?", query_type=QueryType.LOOKUP, facets=["f"],
+        must_cite=["paper:aaa"], key_claims=[], known_refutations=[],
+    )
+    run_system(StubSystem(), [gold], tmp_path, use_judge=False, corpus_ids={"aaa"})
+    (row,) = _rows(tmp_path / "scores.jsonl")
+    assert row["refutation_surfaced"] is None
+    assert row["key_claim_source_recall"] is None
+    assert row["must_cite_recall"] == 1.0, "this one IS applicable and should still score"
+
+
+def test_report_reports_the_n_a_metric_was_averaged_over(tmp_path: Path):
+    """Without per-metric n, a mean over 1 query is indistinguishable from a mean over 3."""
+    with_refutation = GoldRecord(
+        qid="q1", query="q?", query_type=QueryType.REFUTATION, facets=["f"],
+        must_cite=["paper:aaa"],
+        known_refutations=[RefutationPair(a="paper:aaa says x", b="paper:bbb says y")],
+    )
+    without = GoldRecord(
+        qid="q2", query="q?", query_type=QueryType.REFUTATION, facets=["f"],
+        must_cite=["paper:aaa"], known_refutations=[],
+    )
+    run_system(StubSystem(), [with_refutation, without], tmp_path,
+               use_judge=False, corpus_ids={"aaa", "bbb"})
+    report = (tmp_path / "report.md").read_text()
+    assert "1 of 2" in report, "refutation_surfaced applies to one of the two queries"

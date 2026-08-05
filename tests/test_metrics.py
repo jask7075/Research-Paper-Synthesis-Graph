@@ -24,10 +24,12 @@ def test_must_cite_recall_partial():
     assert must_cite_recall(ans, gold) == 0.5
 
 
-def test_must_cite_recall_empty_requirement_is_one():
+def test_must_cite_recall_is_none_when_the_gold_requires_nothing():
+    """Inapplicable, not perfect. A default of 1.0 credits the system for a question the
+    gold never asked, and those credits are averaged into the headline number."""
     gold = _gold(must_cite=[])
     ans = Answer(qid="q1", text="", cited_paper_ids=[])
-    assert must_cite_recall(ans, gold) == 1.0
+    assert must_cite_recall(ans, gold) is None
 
 
 def test_citation_precision_penalizes_spray():
@@ -59,7 +61,9 @@ def test_refutation_surfaced_requires_both_sides():
     assert refutation_surfaced(both, gold) == 1.0
 
 
-def test_refutation_surfaced_no_refutations_is_one():
+def test_refutation_surfaced_is_none_without_a_known_contradiction():
+    """7 of 10 gold queries encode no contradiction. Defaulting them to 1.0 reported an
+    aggregate of 0.700 while all three queries that did encode one scored 0.00."""
     gold = _gold(known_refutations=[])
     ans = Answer(qid="q1", text="", cited_paper_ids=[])
-    assert refutation_surfaced(ans, gold) == 1.0
+    assert refutation_surfaced(ans, gold) is None
