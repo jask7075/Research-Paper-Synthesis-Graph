@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+from pathlib import Path
 
 from rpsg.config import get_settings
 from rpsg.extraction.schema import ExtractionResult
@@ -44,8 +46,34 @@ def build_vectors(hash_embed: bool) -> None:
     log.info("indexed %d chunks", len(chunks))
 
 
+def _reset_graph(db_path: Path) -> None:
+    """Delete the graph before rebuilding it.
+
+    `upsert_nodes` uses MERGE, so building into an existing database *accumulates*: nodes
+    from an earlier extraction survive even when the current one no longer produces them.
+    After the Hardware routing fix that made the graph a union of two extraction
+    generations rather than a picture of one, which is a correctness problem before it is
+    a size one — you cannot tell which run a node came from.
+
+    It also caused the failure that surfaced this: merging a fresh 25k-node extraction on
+    top of a 64 MB database exhausted Kuzu's buffer pool ("Unable to allocate memory! The
+    buffer pool is full and no memory could be freed!").
+
+    The graph is derived data, fully reconstructible from papers.jsonl + extractions.jsonl,
+    so rebuilding from empty is the honest default. The sidecar .wal / .shadow files go too;
+    leaving a WAL behind replays writes belonging to the database we just removed.
+    """
+    for p in (db_path, Path(f"{db_path}.wal"), Path(f"{db_path}.shadow")):
+        if p.is_dir():
+            shutil.rmtree(p)
+        elif p.exists():
+            p.unlink()
+    log.info("cleared existing graph at %s", db_path)
+
+
 def build_graph() -> None:
     settings = get_settings()
+    _reset_graph(Path(settings.paths.kuzu_db))
     store = KuzuGraphStore(str(settings.paths.kuzu_db))
     store.init_schema()
 
