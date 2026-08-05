@@ -31,17 +31,46 @@ _SECTION_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"\b(introduction|background)", re.I), "introduction"),
     (re.compile(r"\b(related work|prior work)", re.I), "related_work"),
     (re.compile(r"\b(method|approach|model|architecture|algorithm|setup)", re.I), "method"),
-    (re.compile(r"\b(experiment|result|evaluation|ablation|benchmark)", re.I), "results"),
+    (
+        # `simulation`/`numerical` included because theory and physics papers title
+        # their evaluation section "Numerical simulations" rather than "Results",
+        # which otherwise falls through to `other` and loses Dataset/evaluated_on
+        # routing (see rpsg.extraction.prompts).
+        re.compile(
+            r"\b(experiment|result|evaluation|ablation|benchmark|simulation|numerical)", re.I
+        ),
+        "results",
+    ),
     (re.compile(r"\b(limitation|threats to validity|future work)", re.I), "limitations"),
     (re.compile(r"\b(discussion|analysis)", re.I), "discussion"),
-    (re.compile(r"\b(conclusion|summary)", re.I), "conclusion"),
+    (re.compile(r"\b(conclusion|summary|outlook)", re.I), "conclusion"),
+    # Data/code availability statements carry the reproducibility payload (repo URLs,
+    # dataset access terms). Measured on 20 quant-ph papers these were 12 sections all
+    # typed `other`, so they were being asked for Method/Problem/Claim — the wrong
+    # question of exactly the right text. Must precede the `appendix` rule.
+    (
+        re.compile(
+            r"\b(data|code|software)\s+availability|\bavailability\s+of\s+(data|code)", re.I
+        ),
+        "availability",
+    ),
+    (re.compile(r"\backnowledg", re.I), "acknowledgments"),
     (re.compile(r"\b(appendix|supplement)", re.I), "appendix"),
     (re.compile(r"\b(references|bibliography)", re.I), "references"),
 ]
 
-#: Sections dropped before chunking. Appendices are deliberately KEPT — that is where
-#: hardware/software/reproducibility facts live (extension #4).
-DROP_SECTION_TYPES = frozenset({"references"})
+#: Sections dropped before chunking AND before extraction. Appendices are deliberately
+#: KEPT — that is where hardware/software/reproducibility facts live (extension #4).
+#: Acknowledgments are funding boilerplate with nothing extractable, and were costing
+#: one API call each (8 across 20 papers).
+DROP_SECTION_TYPES = frozenset({"references", "acknowledgments"})
+
+#: Types that already provide a route to `Limitation` in `rpsg.extraction.prompts`.
+_LIMITATION_ROUTES = frozenset({"conclusion", "discussion", "limitations"})
+#: Trailing matter that is not the paper's conclusion.
+_TAIL_TYPES = frozenset({"references", "appendix", "acknowledgments", "availability"})
+#: A positionally-inferred conclusion must have real content, not be a stray fragment.
+_MIN_CONCLUSION_CHARS = 400
 
 
 class Section(BaseModel):
@@ -50,6 +79,83 @@ class Section(BaseModel):
     title: str
     text: str
     section_type: str = "other"
+
+
+#: A section shorter than this is treated as a split artefact, not a real section.
+_FRAGMENT_CHARS = 200
+#: Chunks shorter than this are dropped rather than embedded — see `_emit_chunk`.
+_MIN_CHUNK_CHARS = 80
+
+
+def merge_fragment_sections(sections: list[Section]) -> list[Section]:
+    """Fold untyped fragments into the preceding section.
+
+    Typography-based heading detection false-positives on wrapped lines — observed
+    "titles" include `'bility of the BP'` and `'tum Circuits, Mitigation of Barren
+    Plateau'`, which are mid-word fragments of running text. Each one splits a real
+    section into several tiny ones, and extraction costs one API call per section:
+    measured on 179 papers, 4,401 sections with a median of 20 but a maximum of 151,
+    where that single paper was ~3.7% of the whole batch.
+
+    Two guards on what may merge:
+      - Only `other` fragments. A short but TYPED section (a 150-char "Limitations")
+        carries routing information that folding it away would destroy.
+      - Never into a dropped section (references/acknowledgments), since that section's
+        text is discarded and the fragment's would go with it.
+
+    Runs BEFORE `refine_section_types`, because that function reasons about first/last
+    position and merging changes what is first and last.
+    """
+    merged: list[Section] = []
+    for section in sections:
+        is_fragment = (
+            section.section_type == "other" and len(section.text.strip()) < _FRAGMENT_CHARS
+        )
+        if is_fragment and merged and merged[-1].section_type not in DROP_SECTION_TYPES:
+            previous = merged[-1]
+            previous.text = f"{previous.text}\n{section.text}".strip()
+            continue
+        merged.append(section)
+    return merged
+
+
+def refine_section_types(sections: list[Section]) -> list[Section]:
+    """Second pass: infer a type from document position where the title could not.
+
+    Title keywords cannot type most headings. Measured across 20 quant-ph papers, 69%
+    of sections were `other`, and inspecting them showed the majority are genuine
+    domain subsections ("The role of measurements", "Variational Dicke state ansatz")
+    that no keyword scheme will ever match. Position, though, is informative — and it
+    matters for one specific reason: `conclusion`/`discussion`/`limitations` are the
+    only types that route `Limitation`, and 7 of those 20 papers had none of the three,
+    making the relational core of the thesis unreachable for 35% of the corpus.
+
+    Two rules, both conservative:
+      1. A leading `other` section is front matter -> `introduction`.
+      2. If nothing routes `Limitation`, the last substantial body section becomes
+         `conclusion`. Trailing matter (references, appendix, acknowledgments,
+         availability) is skipped, and a short fragment is not eligible.
+
+    Mutates nothing: returns the same list with `section_type` updated in place on the
+    Section models, which are local to one parse.
+    """
+    if not sections:
+        return sections
+
+    if sections[0].section_type == "other":
+        sections[0].section_type = "introduction"
+
+    if not any(s.section_type in _LIMITATION_ROUTES for s in sections):
+        for section in reversed(sections):
+            if section.section_type in _TAIL_TYPES:
+                continue
+            if section.section_type == "other" and len(section.text) >= _MIN_CONCLUSION_CHARS:
+                section.section_type = "conclusion"
+            # Stop at the first non-tail section either way: if it was already typed
+            # (say `results`), the paper simply has no conclusion to find.
+            break
+
+    return sections
 
 
 def approx_tokens(text: str) -> int:
@@ -98,7 +204,13 @@ def _emit_chunk(
         return
     start, end = accumulated[0][0], accumulated[-1][1]
     text = section.text[start:end].strip()
-    if not text:
+    # A chunk this short carries no retrievable content, and it is not merely useless:
+    # embedding a 1-3 character string ("A", "1", ",") yields a near-centroid vector that
+    # scores moderately against every query, so on a query with no strong match these
+    # float into the top-k and crowd out real text. Observed on a 10,117-chunk index:
+    # 156 chunks (1.5%) under 20 chars, and a real query returned six of them, leaving
+    # the synthesizer with 201 tokens of section labels to answer from.
+    if len(text) < _MIN_CHUNK_CHARS:
         return
     chunks.append(
         Chunk(

@@ -46,10 +46,35 @@ def test_references_dropped_appendix_kept():
 
 def test_chunk_paper_emits_both_corpora():
     sections = [Section(title="Method", text="Body text. " * 40, section_type="method")]
-    chunks = chunk_paper("p3", abstract="A short abstract about the method.", sections=sections)
+    # A realistic abstract length. The previous fixture was 34 characters, which no real
+    # Semantic Scholar abstract is (they run to ~1000+), and which now falls below the
+    # minimum chunk length.
+    abstract = (
+        "We study the trainability of parameterized quantum circuits and show that "
+        "gradient variance decays exponentially with qubit count for sufficiently "
+        "random ansatze, then evaluate two mitigation strategies. "
+    )
+    chunks = chunk_paper("p3", abstract=abstract, sections=sections)
     corpora = {c.corpus for c in chunks}
     assert "abstract" in corpora
     assert "fulltext" in corpora
+
+
+def test_degenerate_chunks_are_dropped():
+    """Single-character chunks embed to near-centroid vectors and pollute top-k.
+
+    Observed on a 10,117-chunk index: 156 chunks under 20 characters (values like "A",
+    "1", ","), and a real query returned six of them, leaving the synthesizer 201 tokens
+    of section labels to answer from.
+    """
+    sections = [
+        Section(title="Body", text="A", section_type="other"),
+        Section(title="Real", text="Meaningful sentence about quantum circuits. " * 6,
+                section_type="method"),
+    ]
+    chunks = chunk_sections("p4", sections, target_tokens=200, overlap_tokens=16)
+    assert all(len(c.text) >= 80 for c in chunks), [c.text for c in chunks]
+    assert any(c.section_type == "method" for c in chunks)  # real content survives
 
 
 def test_approx_tokens_monotonic():

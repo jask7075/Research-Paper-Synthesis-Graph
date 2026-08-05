@@ -55,6 +55,22 @@ _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
         [NodeType.LIMITATION],
         [],
     ),
+    # Most papers have no `Limitations` or `Discussion` heading at all and state
+    # their caveats and open problems in the conclusion instead. Without this
+    # entry `conclusion` fell through to the default types and `Limitation` was
+    # unreachable for such papers — i.e. the relational core of the thesis
+    # ("which methods were limited by Y") had no data to draw on.
+    "conclusion": (
+        [NodeType.CLAIM, NodeType.LIMITATION, NodeType.PROBLEM],
+        [EdgeType.ADDRESSES],
+    ),
+    # "Data/Code availability" statements: short, and almost pure reproducibility
+    # payload (repo URLs, dataset access terms). Asking for Method/Problem/Claim here —
+    # which the default did — wastes the one place the repro layer is stated plainly.
+    "availability": (
+        [NodeType.REPRO_ARTIFACT, NodeType.SOFTWARE, NodeType.DATASET],
+        [EdgeType.PROVIDES, EdgeType.USES, EdgeType.EVALUATED_ON],
+    ),
     "appendix": (  # where reproducibility facts hide (extension #4)
         [NodeType.HARDWARE, NodeType.SOFTWARE, NodeType.REPRO_ARTIFACT, NodeType.DATASET],
         [EdgeType.REQUIRES, EdgeType.USES, EdgeType.PROVIDES, EdgeType.EVALUATED_ON],
@@ -63,7 +79,7 @@ _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
 
 # Default for "other"/unclassified sections: the common semantic types, no rare edges.
 _DEFAULT_TYPES = (
-    [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM],
+    [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM, NodeType.LIMITATION],
     [EdgeType.ADDRESSES, EdgeType.BUILDS_ON],
 )
 

@@ -13,7 +13,8 @@ authors = [{ name = "RPSG" }]
 dependencies = [
     "pydantic>=2.6",
     "pydantic-settings>=2.2",
-    "anthropic>=0.69",
+    "openai>=1.40",
+    "anthropic>=0.69",       # optional at runtime; only imported for claude-* model ids
     "httpx>=0.27",
     "tenacity>=8.2",           # retry/backoff for API + service calls
     "pyyaml>=6.0",
@@ -58,7 +59,10 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 ignore = ["UP042"]
 
 [tool.mypy]
-python_version = "3.11"
+# 3.12+: numpy's bundled stubs use PEP 695 `type` statements, which mypy rejects when
+# asked to target 3.11 — and that error aborts the run before any project file is
+# checked, so `make typecheck` silently verified nothing.
+python_version = "3.12"
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
 files = ["src/rpsg"]

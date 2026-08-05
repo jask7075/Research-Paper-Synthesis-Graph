@@ -99,6 +99,10 @@ class KuzuGraphStore(GraphStore):
 
     def query(self, cypher: str, params: dict | None = None) -> list[dict]:
         result = self._conn.execute(cypher, params or {})
+        # Kuzu returns a list of QueryResult when handed multiple statements; this is a
+        # single-statement read API, so take the first and ignore the rest.
+        if isinstance(result, list):
+            result = result[0]
         rows: list[dict] = []
         cols = result.get_column_names()
         while result.has_next():

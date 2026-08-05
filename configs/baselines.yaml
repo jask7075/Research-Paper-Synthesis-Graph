@@ -1,20 +1,22 @@
-# The systems under test. Iteration 1 must produce a scored `vector_fulltext` run.
-# `typed_graph` and the agentic loop arrive in Iterations 2–3 (listed here so the harness
-# is stable across the whole project).
+# !! DESIGN RECORD — NOT READ AT RUNTIME !!
+# No code loads this file. It documents the intended roster of systems under test so the
+# plan is reviewable; the two systems that exist are selected by `scripts/06_run_eval.py`
+# via `--system`, and `top_k` is an argparse default there, not a value read from here.
+# Keep this honest: do not add a key here describing behaviour that isn't implemented.
+#
+# `typed_graph` / `citation_graph` arrive in Iterations 2-3.
 
 systems:
   vector_abstract:
     kind: vector
     corpus: abstract
-    top_k: 20
-    reranker: null
+    top_k: 20                 # duplicated as the --top-k default in 06_run_eval.py
     note: "Floor. Shows the abstract-only ceiling."
 
   vector_fulltext:            # <-- the real baseline to beat
     kind: vector
     corpus: fulltext
-    top_k: 20
-    reranker: cross-encoder   # optional; set null to disable
+    top_k: 20                 # duplicated as the --top-k default in 06_run_eval.py
     note: "Essential baseline. If the typed graph can't beat this on relational queries, the thesis fails."
 
   citation_graph:

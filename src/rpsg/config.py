@@ -6,7 +6,7 @@ Layering (lowest → highest precedence):
 Usage:
     from rpsg.config import get_settings
     settings = get_settings()
-    settings.models.judge_model  # "claude-opus-4-8"
+    settings.models.judge_model  # "gpt-5.4-mini"
 """
 
 from __future__ import annotations
@@ -38,16 +38,52 @@ class Paths(BaseModel):
 
 
 class Models(BaseModel):
-    extraction_model: str = "claude-haiku-4-5"
-    judge_model: str = "claude-opus-4-8"
-    synthesis_model: str = "claude-opus-4-8"
+    extraction_model: str = "gpt-5.4-nano"
+    judge_model: str = "gpt-5.4-mini"
+    synthesis_model: str = "gpt-5.4-mini"
     local_inference_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
+    #: Override provider routing. None = infer from the model id (see rpsg.llm).
+    provider: str | None = None
+    #: Optional per-model rates, e.g. {"gpt-5.4-nano": {"input_per_mtok": 0.05,
+    #: "output_per_mtok": 0.40}}. Deliberately empty by default — see rpsg.llm.usage
+    #: for why rates are not hardcoded. Token counts are reported either way.
+    pricing: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
 class Embeddings(BaseModel):
-    model_name: str = "allenai/specter2_base"
+    #: SPECTER (original), natively packaged for sentence-transformers. Chosen over
+    #: `allenai/specter2_base`: SPECTER2 is an adapter model (base weights + a task
+    #: adapter) and plain sentence-transformers loads only the base, silently — no
+    #: error, just a model that is not the one you asked for. Same 768 dims and same
+    #: scientific-paper domain, so this is a drop-in with no config knock-on.
+    model_name: str = "sentence-transformers/allenai-specter"
     dim: int = 768
     batch_size: int = 32
+
+
+class Extraction(BaseModel):
+    #: Nodes below this confidence are dropped rather than written to the curated layer.
+    #: Set to 0.65 because inspection put the real/soft boundary for `Limitation` there,
+    #: and it costs only 7% of nodes.
+    min_node_confidence: float = 0.65
+    #: Edges are gated SEPARATELY and more loosely on purpose. A uniform 0.65 threshold
+    #: retains 93% of nodes but only 71% of edges — edges are the scarce resource (350
+    #: against 1379 nodes on a 20-paper corpus) and they are what makes this a graph
+    #: rather than a bag of typed nodes, so paying 29% of them for node precision is a
+    #: bad trade. An edge is still dropped when either endpoint was dropped, so node
+    #: gating already prunes edges transitively.
+    min_edge_confidence: float = 0.5
+    #: Sections extracted in parallel within one paper. The stage is network-bound, not
+    #: CPU-bound (measured: 0.2% CPU across a 29-minute run), so this is pure latency
+    #: hiding. Raise it if the provider's rate limit allows; lower it on 429s.
+    max_workers: int = 8
+
+
+class Retrieval(BaseModel):
+    #: Similarity is damped for chunks shorter than this (0 disables). Short text embeds
+    #: near the corpus centroid and so over-scores against every query; see
+    #: `rpsg.stores.vector_store._length_damping`.
+    length_damping_chars: int = 800
 
 
 class Chunking(BaseModel):
@@ -62,7 +98,6 @@ class Calibration(BaseModel):
 
 
 class Eval(BaseModel):
-    judge_temperature: float = 0.0
     calibration: Calibration = Field(default_factory=Calibration)
 
 
@@ -77,6 +112,7 @@ class Settings(BaseSettings):
     )
 
     # Secrets (from .env / env; not in settings.yaml)
+    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
     anthropic_api_key: str | None = Field(default=None, alias="ANTHROPIC_API_KEY")
     s2_api_key: str | None = Field(default=None, alias="S2_API_KEY")
     grobid_url: str = "http://localhost:8070"
@@ -86,7 +122,9 @@ class Settings(BaseSettings):
     paths: Paths = Field(default_factory=Paths)
     models: Models = Field(default_factory=Models)
     embeddings: Embeddings = Field(default_factory=Embeddings)
+    extraction: Extraction = Field(default_factory=Extraction)
     chunking: Chunking = Field(default_factory=Chunking)
+    retrieval: Retrieval = Field(default_factory=Retrieval)
     eval: Eval = Field(default_factory=Eval)
 
 

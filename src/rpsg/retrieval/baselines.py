@@ -11,9 +11,11 @@ score against, so retrieval and citation stay coupled.
 
 from __future__ import annotations
 
+import re
 from typing import Protocol
 
 from rpsg.config import get_settings
+from rpsg.llm import ChatClient, get_chat_client
 from rpsg.logging import get_logger
 from rpsg.stores.base import Embedder, SearchHit, VectorStore
 
@@ -35,10 +37,17 @@ class System(Protocol):
 
 _SYNTH_SYSTEM = """\
 You are a research-synthesis assistant. Answer the question using ONLY the provided
-excerpts. Cite the paper id in square brackets after each claim, e.g. [paper:abc123].
+excerpts. Cite the short paper handle in square brackets after each claim, e.g. [P1].
+Use one handle per bracket: write [P1][P3], not [P1, P3]. Use only handles that appear
+in the excerpts.
 If the excerpts are insufficient for part of the question, say so explicitly and hedge —
 do not fill gaps from outside knowledge. Surface any contradictions between excerpts.
 """
+
+#: A citation handle in the model's answer. Tolerates `[P1, P3]` even though the prompt
+#: asks for `[P1][P3]`, because an unmatched bracket would otherwise survive into the
+#: answer as a dangling handle.
+_HANDLE = re.compile(r"\[(P\d+(?:\s*,\s*P\d+)*)\]")
 
 
 class VectorRAGSystem:
@@ -59,40 +68,84 @@ class VectorRAGSystem:
         self._corpus = corpus
         self._top_k = top_k
         self._synthesis_model = synthesis_model or get_settings().models.synthesis_model
-        self._client = None  # lazy Anthropic client
+        self._client: ChatClient | None = None  # built on first synthesis call
 
     def _retrieve(self, query: str) -> list[SearchHit]:
         qvec = self._embedder.encode([query])[0]
         return self._store.search(qvec, top_k=self._top_k, corpus=self._corpus)
 
     @staticmethod
-    def _format_evidence(hits: list[SearchHit]) -> tuple[str, list[str]]:
-        blocks, papers = [], []
+    def _format_evidence(hits: list[SearchHit]) -> tuple[str, dict[str, str]]:
+        """Label excerpts with short handles; return the text and handle -> paper id.
+
+        Papers are identified to the model as `P1`, `P2`, ... rather than by their
+        40-hex-character Semantic Scholar id. Asked to copy those ids verbatim, the
+        model mangles them — observed in a real answer, one id came back with an
+        internal fragment duplicated and another truncated. Because `runner.py`
+        harvests citations by regex from the answer text, a mangled id counts as a
+        distinct cited paper and silently corrupts `must_cite_recall` and
+        `citation_precision`. Short handles are copyable, and unknown ones can be
+        rejected on the way back (see `_resolve_handles`).
+        """
+        handles: dict[str, str] = {}
+        by_paper: dict[str, str] = {}
+        blocks = []
         for h in hits:
             pid = f"paper:{h.chunk.paper_id}"
-            papers.append(pid)
-            blocks.append(f"[{pid}] ({h.chunk.section_type}) {h.chunk.text}")
-        return "\n\n".join(blocks), sorted(set(papers))
+            if pid not in by_paper:
+                handle = f"P{len(by_paper) + 1}"  # first-appearance order: deterministic
+                by_paper[pid] = handle
+                handles[handle] = pid
+            blocks.append(f"[{by_paper[pid]}] ({h.chunk.section_type}) {h.chunk.text}")
+        return "\n\n".join(blocks), handles
+
+    @staticmethod
+    def _resolve_handles(text: str, handles: dict[str, str]) -> tuple[str, list[str]]:
+        """Rewrite `[P1]` back to `[paper:<id>]` and report which papers were cited.
+
+        Restoring real ids in the stored answer keeps the downstream contract intact:
+        `runner.py`'s citation regex, the deterministic metrics, and gold-set matching
+        all continue to work on `paper:<id>`. A handle that was never issued is dropped
+        rather than passed through, so a hallucinated citation cannot inflate the
+        cited-paper set.
+        """
+        cited: set[str] = set()
+
+        def replace(match: re.Match[str]) -> str:
+            resolved = []
+            for raw in match.group(1).split(","):
+                pid = handles.get(raw.strip())
+                if pid is None:
+                    continue  # handle the model invented — drop it
+                cited.add(pid)
+                resolved.append(f"[{pid}]")
+            return "".join(resolved)
+
+        resolved_text = _HANDLE.sub(replace, text)
+        # Dropping a handle would otherwise leave the space that preceded it stranded
+        # before the punctuation ("...from nowhere .").
+        resolved_text = re.sub(r"[ \t]+([.,;:!?])", r"\1", resolved_text)
+        return resolved_text, sorted(cited)
 
     def _synthesize(self, query: str, evidence: str) -> str:
-        import anthropic
-
         if self._client is None:
-            self._client = anthropic.Anthropic(api_key=get_settings().anthropic_api_key)
-        resp = self._client.messages.create(
-            model=self._synthesis_model,
-            max_tokens=2048,
+            self._client = get_chat_client(self._synthesis_model)
+        return self._client.text(
             system=_SYNTH_SYSTEM,
-            messages=[
-                {"role": "user", "content": f"QUESTION: {query}\n\nEXCERPTS:\n{evidence}"}
-            ],
+            user=f"QUESTION: {query}\n\nEXCERPTS:\n{evidence}",
+            max_tokens=4096,
         )
-        return next((b.text for b in resp.content if b.type == "text"), "")
 
     def answer(self, query: str) -> SystemOutput:
         hits = self._retrieve(query)
-        evidence, cited = self._format_evidence(hits)
         if not hits:
             return SystemOutput("No relevant evidence was retrieved.", [], "")
-        text = self._synthesize(query, evidence)
-        return SystemOutput(text=text, cited_paper_ids=cited, evidence=evidence)
+        evidence, handles = self._format_evidence(hits)
+        text, cited = self._resolve_handles(self._synthesize(query, evidence), handles)
+        # Fall back to everything retrieved only when the model cited nothing at all,
+        # so `citation_precision` still has a denominator.
+        return SystemOutput(
+            text=text,
+            cited_paper_ids=cited or sorted(set(handles.values())),
+            evidence=evidence,
+        )
