@@ -207,3 +207,100 @@ where a reader would expect the detail to live.
 **Cost to realise: ~$6.30 and ~70 minutes** for 270 papers. Batch it with any other prompt
 change rather than re-extracting for this alone. Until it runs, the `Hardware` counts and
 the 25%-on-stated-fields figure both stand as measured under the old routing.
+
+---
+
+## 2.6–2.12 — entity resolution and the typed-graph arm
+
+### What the plan assumed, and what measurement said
+
+| assumption | outcome |
+|---|---|
+| ER merges ~1.6% of entity nodes | **deterministic: 0.20%**, hybrid: **3.69%** |
+| Duplicates are a naming-verbosity problem | **no** — median name 4.0 → 3.0 words changed merges 8 → 7 |
+| Semantic merging = a threshold over embedding similarity | **no viable threshold exists** (below) |
+| 2.6 gates 2.9: typed retrieval over duplicates is unmeasurable | **loosened, not removed** — 2.9 ran anyway and the duplicates were not the limiting factor |
+
+### 2.8 Why an embedding threshold cannot work here
+
+Nearest-neighbour cosine over 6,193 distinct `Method` nodes (SPECTER):
+
+| band | nodes | | band | nodes |
+|---|---|---|---|---|
+| 0.95–1.00 | 2,052 | | 0.80–0.85 | 189 |
+| 0.90–0.95 | 2,742 | | 0.70–0.80 | 10 |
+| 0.85–0.90 | 1,200 | | **below 0.70** | **0** |
+
+Nothing falls below 0.70, so there is no negative class. Worse, similarity does not rank
+true pairs above false ones: `"Gradient-free classical optimization for QAOA parameters"`
+vs `"Gradient-based ..."` scores **0.993**, while the genuine duplicate
+`"Quantum Multi-value Decision Diagram (QMDD)"` vs `"Quantum Multi-valued ..."` scores
+0.976. Negation is the classic embedding failure and it dominates here.
+
+### 2.8 Hybrid: embeddings for recall, a model for the decision
+
+Embeddings reduce ~19M possible pairs to 3,487 candidates above 0.95; `gpt-5.4-nano` then
+reads each pair. **909 ids merged (3.69%)** — 18× the deterministic yield, for **$0.30**.
+
+The model rejected **67%** of what embeddings proposed, and the rejections are the
+argument for the architecture. All of these scored 0.999–1.000 cosine:
+
+    "Batch Relaxing (Algorithm 1)"           != "Batch Relaxing (Algorithm 2)"
+    "Quantum hardware configuration (12...)" != "Quantum hardware configuration (6...)"
+    "First-order optimization for..."        != "Second-order optimization for..."
+
+Verdicts are cached by name pair, which recovers most of the determinism this approach
+otherwise gives up.
+
+### 2.10 Hops, measured
+
+| hops | recall | evidence chars/query |
+|---|---|---|
+| 1 | 0.389 | 4,573 |
+| **2** | **0.556** | 9,184 |
+| 3 | 0.556 | 13,326 |
+
+The second hop is the entire gain; the third adds volume only. Neither more seeds (12→24)
+nor a larger node cap (60→300) moved recall at all.
+
+**A prediction that failed:** removing `Claim` from the seed types, on the theory that
+sentence-shaped nodes crowd out the concepts a query asks to enumerate, dropped recall
+**0.556 → 0.333**. Claims are sentences and so are queries — they match far better than
+3-word concept names and are the doorway into a neighbourhood.
+
+### 2.12 Three-arm comparison — the typed graph loses
+
+| metric | abstract | fulltext | typed_graph |
+|---|---|---|---|
+| must_cite_recall | 0.367 | **0.367** | **0.183** |
+| citation_precision | **0.233** | 0.210 | 0.175 |
+| key_claim_source_recall | **0.417** | 0.317 | 0.183 |
+| refutation_surfaced | 0.000 | **0.333** | **0.333** |
+| judge coverage *(calibrated)* | 1.80 | **2.90** | 2.00 |
+| judge synthesis *(calibrated)* | 2.20 | **3.10** | 2.30 |
+| cost per 10-query run | $0.08 | $0.50 | **$0.07** |
+
+On both calibrated criteria the typed graph sits barely above abstract-only and clearly
+below full-text.
+
+### The diagnosis: conversion, not traversal
+
+| arm | retrieval ceiling | cited | conversion |
+|---|---|---|---|
+| vector_fulltext | 0.611 | 0.367 | **60%** |
+| typed_graph | 0.556 | 0.183 | **33%** |
+
+Traversal found nearly as many required papers as vector retrieval and cited half as many.
+The failure is downstream of the graph. The probable cause is the evidence unit: node
+evidence is one-sentence quotes stripped of context, against ~1,800 characters of
+connected prose per chunk. Shorter answers (1,714 vs 2,382 chars) and fewer citations
+(3.0 vs 3.4) fit that reading.
+
+It does win where typed edges should help — `refutation_surfaced` **0.333**, matching
+full-text and beating abstract-only's 0.000 — and it is the cheapest arm by 7×.
+
+**Recorded as a negative result for the thesis as stated**, on this corpus at this
+configuration. The next experiment is to hand the synthesizer each node's *source chunk*
+rather than its quote, making the graph a retrieval router over the same evidence units
+the vector arm uses. That isolates traversal from evidence formatting. Retuning until the
+graph wins would not be a result.

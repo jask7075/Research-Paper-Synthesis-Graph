@@ -120,7 +120,14 @@ class Node(BaseModel):
 
     id: str = Field(description="Stable unique id, e.g. 'method:proximal-policy-optimization'.")
     type: NodeType
-    name: str = Field(description="Surface form / canonical label.")
+    name: str = Field(
+        description=(
+            "Canonical label. For entity types (Method, Problem, Dataset, Software, "
+            "Hardware) a short noun phrase usable as an index entry, not a description "
+            "of what this paper did with it — the paper's own wording goes in `aliases`. "
+            "For Claim and Limitation, one complete sentence."
+        )
+    )
     aliases: list[str] = Field(default_factory=list, description="Known surface variants.")
     attrs: dict[str, str | int | float | bool | None] = Field(
         default_factory=dict,

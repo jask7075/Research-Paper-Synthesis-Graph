@@ -19,8 +19,14 @@ Rules:
 - Every node and edge MUST include a short verbatim `evidence_quote` from the text.
 - `confidence` in [0,1] reflects how explicitly the text supports the item. A guessed
   `refutes`/`undercuts` edge should score low, not be omitted — downstream hedges on it.
-- Prefer canonical names ("Proximal Policy Optimization" not "our method"); put surface
-  variants in `aliases`.
+- `name` is an INDEX ENTRY, not a description. For Method, Problem, Dataset, Software and
+  Hardware give the shortest noun phrase that identifies the thing: "Variational Quantum
+  Eigensolver", never "estimating ground-state energy using a variational eigensolver".
+  Two papers describing the same method must produce the SAME `name`, so drop what this
+  paper did with it, drop qualifiers, drop leading verbs. Put the paper's own phrasing in
+  `aliases`.
+- Claim and Limitation are propositions rather than entities: state each as one complete
+  sentence. The index-entry rule does not apply to them.
 - Do NOT extract Paper/Author/Venue nodes — those come from metadata, not from you.
 - Return {"nodes": [], "edges": []} if the section contains nothing extractable.
 """

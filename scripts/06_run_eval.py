@@ -17,18 +17,21 @@ from rpsg.eval.gold_schema import load_gold
 from rpsg.eval.runner import run_system
 from rpsg.llm.usage import USAGE
 from rpsg.logging import get_logger
-from rpsg.retrieval.baselines import VectorRAGSystem
+from rpsg.retrieval.baselines import System, VectorRAGSystem
+from rpsg.retrieval.typed_graph import TypedGraphSystem
 from rpsg.stores.embedder import HashEmbedder, SentenceTransformerEmbedder
+from rpsg.stores.graph_store import KuzuGraphStore
 from rpsg.stores.vector_store import FaissVectorStore
 
 log = get_logger(__name__)
 
 _CORPUS = {"vector_abstract": "abstract", "vector_fulltext": "fulltext"}
+_SYSTEMS = (*_CORPUS, "typed_graph")
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--system", choices=list(_CORPUS), default="vector_fulltext")
+    ap.add_argument("--system", choices=list(_SYSTEMS), default="vector_fulltext")
     ap.add_argument("--top-k", type=int, default=60)
     ap.add_argument("--no-judge", action="store_true")
     ap.add_argument("--hash-embed", action="store_true", help="offline embedder (smoke test)")
@@ -45,16 +48,25 @@ def main() -> None:
             settings.embeddings.model_name, settings.embeddings.dim, settings.embeddings.batch_size
         )
     )
-    store = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
-    store.load()
-
-    system = VectorRAGSystem(
-        name=args.system,
-        embedder=embedder,
-        store=store,
-        corpus=_CORPUS[args.system],
-        top_k=args.top_k,
-    )
+    system: System
+    if args.system == "typed_graph":
+        # Reads the graph, not the vector index. `hops` and `max_nodes` take the module
+        # defaults, both set from the retrieval sweep rather than chosen.
+        system = TypedGraphSystem(
+            name=args.system,
+            embedder=embedder,
+            store=KuzuGraphStore(str(settings.paths.kuzu_db)),
+        )
+    else:
+        vector_store = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
+        vector_store.load()
+        system = VectorRAGSystem(
+            name=args.system,
+            embedder=embedder,
+            store=vector_store,
+            corpus=_CORPUS[args.system],
+            top_k=args.top_k,
+        )
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     run_dir = settings.paths.eval_runs / f"{stamp}_{args.system}"
