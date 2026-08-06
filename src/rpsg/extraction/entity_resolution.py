@@ -7,9 +7,11 @@ before it is trusted.
 
 Two rules, in order of how much they can hurt:
 
-1. **Normalization.** Case, punctuation and trailing parentheticals are noise. Merging on
-   the normalized form is safe because it only joins nodes whose visible text already
-   agrees. Measured on this corpus it merges ~1.3% of ids.
+1. **Normalization.** Case and punctuation are noise; parenthetical *content* is not.
+   Merging on the normalized form only joins nodes whose visible text already agrees.
+   An earlier version deleted parentheticals and merged "AlphaQubit 2 (RT) complexity"
+   with "AlphaQubit 2 (full) complexity" -- see `normalize` for why that is the shape of
+   mistake this module exists to avoid.
 
 2. **Unambiguous acronym expansion.** `Variational Quantum Eigensolver (VQE)` licenses
    folding a bare `VQE` node into it — but *only* when the corpus expands that acronym one
@@ -38,7 +40,6 @@ from typing import NamedTuple
 
 #: `Full Name (ACRO)` / `Full Name (ACROs)` at the end of a name.
 _ACRONYM = re.compile(r"\(([A-Z][A-Za-z0-9\-]{1,9})s?\)\s*$")
-_PARENTHETICAL = re.compile(r"\([^)]*\)")
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 
 
@@ -52,9 +53,21 @@ class Merge(NamedTuple):
 
 
 def normalize(name: str) -> str:
-    """Comparison form: lowercased, parentheticals dropped, punctuation flattened."""
+    """Comparison form: lowercased, punctuation flattened, parenthetical content KEPT.
+
+    Deleting parentheticals looks harmless and is not. An earlier version dropped them
+    all, on the theory that they are acronym glosses, and merged these:
+
+        "AlphaQubit 2 (RT) complexity"  ==  "AlphaQubit 2 (full) complexity"
+        "Eq. (F11) ... subgraph (c)"    ==  "Eq. (F10) ... subgraph (b)"
+
+    In both cases the parenthesis carried the only distinguishing content, so the rule
+    asserted two different claims were one. Parentheses are now flattened to spaces like
+    any other punctuation, which keeps `(RT)` and `(full)` apart. A trailing acronym gloss
+    still links to its expansion, but through the acronym rule, where the ambiguity filter
+    can see it — not silently here.
+    """
     s = unicodedata.normalize("NFKD", name or "").lower()
-    s = _PARENTHETICAL.sub(" ", s)
     return _NON_ALNUM.sub(" ", s).strip()
 
 
@@ -75,7 +88,10 @@ def _expansions(nodes: Iterable[dict]) -> dict[str, set[str]]:
     for n in nodes:
         acro = acronym_of(n["name"])
         if acro:
-            expansion = normalize(n["name"])
+            # The expansion is the name minus its trailing gloss: "Variational Quantum
+            # Eigensolver (VQE)" expands VQE to "variational quantum eigensolver". Keeping
+            # the gloss in would make the expansion unmatchable against any other node.
+            expansion = normalize(_ACRONYM.sub("", n["name"]))
             if expansion:
                 out[acro].add(expansion)
     return dict(out)
@@ -93,13 +109,20 @@ def build_entity_map(nodes: Iterable[dict]) -> tuple[dict[str, str], list[Merge]
     # canonical id per (type, normalized name): the lexicographically smallest id, so the
     # map is stable across runs regardless of extraction order.
     canonical: dict[tuple[str, str], str] = {}
+    degloss: dict[tuple[str, str], str] = {}
     for n in sorted(nodes, key=lambda x: x["id"]):
         key = (n["type"], normalize(n["name"]))
         if key[1]:
             canonical.setdefault(key, n["id"])
+        # A second index keyed on the gloss-stripped form, so a bare acronym can find
+        # "Variational Quantum Eigensolver (VQE)" without the gloss blocking the match.
+        dg = (n["type"], normalize(_ACRONYM.sub("", n["name"])))
+        if dg[1]:
+            degloss.setdefault(dg, n["id"])
 
     mapping: dict[str, str] = {}
     merges: list[Merge] = []
+    seen: set[str] = set()
     for n in sorted(nodes, key=lambda x: x["id"]):
         norm = normalize(n["name"])
         if not norm:
@@ -107,15 +130,18 @@ def build_entity_map(nodes: Iterable[dict]) -> tuple[dict[str, str], list[Merge]
         target = canonical.get((n["type"], norm))
         if target and target != n["id"]:
             mapping[n["id"]] = target
-            merges.append(Merge(n["id"], target, "normalization", norm))
+            if n["id"] not in seen:
+                seen.add(n["id"])
+                merges.append(Merge(n["id"], target, "normalization", norm))
             continue
         # A bare acronym node folds into its expansion, when there is exactly one.
         bare = norm.upper()
         if bare in unambiguous:
             expanded = unambiguous[bare]
-            target = canonical.get((n["type"], expanded))
-            if target and target != n["id"]:
+            target = degloss.get((n["type"], expanded))
+            if target and target != n["id"] and n["id"] not in seen:
                 mapping[n["id"]] = target
+                seen.add(n["id"])
                 merges.append(Merge(n["id"], target, "acronym", f"{bare} -> {expanded}"))
     return mapping, merges
 

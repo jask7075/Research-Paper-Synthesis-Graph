@@ -15,7 +15,8 @@ import shutil
 from pathlib import Path
 
 from rpsg.config import get_settings
-from rpsg.extraction.schema import ExtractionResult
+from rpsg.extraction.entity_resolution import apply_map, build_entity_map
+from rpsg.extraction.schema import Edge, ExtractionResult, Node
 from rpsg.ingestion.semantic_scholar import S2Paper, to_graph
 from rpsg.logging import get_logger
 from rpsg.stores.base import Chunk
@@ -90,13 +91,75 @@ def build_graph() -> None:
     # Tier B/C + repro from extractions (curated layer)
     ext_path = settings.paths.data_processed / "extractions.jsonl"
     if ext_path.exists():
-        for line in ext_path.read_text().splitlines():
-            if not line:
-                continue
-            result = ExtractionResult(**json.loads(line))
-            store.upsert_nodes(result.nodes)
-            store.upsert_edges(result.edges)
+        results = [
+            ExtractionResult(**json.loads(line))
+            for line in ext_path.read_text().splitlines()
+            if line
+        ]
+        # Entity resolution is applied here rather than during extraction because the
+        # acronym rule needs the whole corpus: whether `VQE` is ambiguous depends on every
+        # paper, not the one being extracted. Doing it per paper would make a node's
+        # identity depend on ingestion order.
+        mapping, merges = build_entity_map(
+            [n.model_dump() for r in results for n in r.nodes]
+        )
+        _write_entity_map(settings.paths.data_processed / "entity_map.json", mapping, merges)
+        for result in results:
+            store.upsert_nodes(_resolve_nodes(result.nodes, mapping))
+            store.upsert_edges(_resolve_edges(result.edges, mapping))
     log.info("graph built at %s", settings.paths.kuzu_db)
+
+
+def _resolve_nodes(nodes: list[Node], mapping: dict[str, str]) -> list[Node]:
+    """Point merged nodes at their canonical id.
+
+    The node keeps its own name and evidence; only the id moves. `upsert_nodes` MERGEs on
+    id, so the surviving node is whichever the last writer describes — losing the alias
+    text is a known cost of resolving at build time rather than storing aliases.
+    """
+    out = []
+    for n in nodes:
+        target = apply_map(n.id, mapping)
+        out.append(n if target == n.id else n.model_copy(update={"id": target}))
+    return out
+
+
+def _resolve_edges(edges: list[Edge], mapping: dict[str, str]) -> list[Edge]:
+    """Repoint both endpoints, and drop edges that become self-loops.
+
+    A merge can turn `A -> B` into `A -> A`: two names for one entity that the extractor
+    thought were related. Keeping those would manufacture self-referential edges that no
+    paper asserts.
+    """
+    out = []
+    for e in edges:
+        src, dst = apply_map(e.src, mapping), apply_map(e.dst, mapping)
+        if src == dst:
+            continue
+        if (src, dst) == (e.src, e.dst):
+            out.append(e)
+        else:
+            out.append(e.model_copy(update={"src": src, "dst": dst}))
+    return out
+
+
+def _write_entity_map(path: Path, mapping: dict[str, str], merges: list) -> None:
+    """Persist the map so a merge can be inspected without re-running the build."""
+    by_rule: dict[str, int] = {}
+    for m in merges:
+        by_rule[m.rule] = by_rule.get(m.rule, 0) + 1
+    path.write_text(
+        json.dumps(
+            {
+                "merged_ids": len(mapping),
+                "by_rule": by_rule,
+                "mapping": mapping,
+                "merges": [m._asdict() for m in merges],
+            },
+            indent=2,
+        )
+    )
+    log.info("entity map: %d ids merged %s -> %s", len(mapping), by_rule, path)
 
 
 def main() -> None:

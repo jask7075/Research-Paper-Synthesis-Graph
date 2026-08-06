@@ -27,8 +27,32 @@ def test_case_and_punctuation_are_noise():
     assert normalize("Quantum-Circuit Learning") == normalize("quantum circuit learning")
 
 
-def test_a_trailing_gloss_does_not_change_the_entity():
-    assert normalize("Variational Quantum Eigensolver (VQE)") == "variational quantum eigensolver"
+def test_parenthetical_content_is_kept_because_it_can_be_the_only_difference():
+    """Deleting parentheticals merged "AlphaQubit 2 (RT) complexity" with
+    "AlphaQubit 2 (full) complexity" -- two different claims. The gloss-to-expansion link
+    is the acronym rule's job, where the ambiguity filter can see it."""
+    assert (
+        normalize("Variational Quantum Eigensolver (VQE)")
+        == "variational quantum eigensolver vqe"
+    )
+    assert normalize("AlphaQubit 2 (RT) complexity") != normalize("AlphaQubit 2 (full) complexity")
+
+
+def test_distinguishing_parentheticals_are_not_merged_away():
+    nodes = [
+        _node("claim:aq-rt", "AlphaQubit 2 (RT) complexity", "Claim"),
+        _node("claim:aq-full", "AlphaQubit 2 (full) complexity", "Claim"),
+    ]
+    mapping, _ = build_entity_map(nodes)
+    assert mapping == {}, "these are different claims"
+
+
+def test_the_merge_log_records_each_id_once():
+    """A node id recurs across papers; logging per occurrence inflated the count to 620
+    against a 369-entry map."""
+    nodes = [_node("m:a", "Thing"), _node("m:b", "thing"), _node("m:b", "thing")]
+    _, merges = build_entity_map(nodes)
+    assert len({m.from_id for m in merges}) == len(merges)
 
 
 def test_names_differing_only_in_formatting_merge():
