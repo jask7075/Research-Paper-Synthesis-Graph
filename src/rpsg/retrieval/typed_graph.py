@@ -84,6 +84,8 @@ class TypedGraphSystem:
         hops: int = 2,
         max_nodes: int = 150,
         synthesis_model: str | None = None,
+        vector_store: Any = None,
+        chunks_per_paper: int = 4,
     ) -> None:
         self.name = name
         self._embedder = embedder
@@ -103,6 +105,19 @@ class TypedGraphSystem:
         self._client: Any = None
         self._names: list[dict[str, Any]] = []
         self._vecs: Any = None
+        # With a vector store the graph becomes a *router*: traversal chooses the papers,
+        # chunks from those papers become the evidence. That puts both arms on the same
+        # evidence unit, which isolates traversal from evidence formatting.
+        #
+        # The first scored run passed node quotes instead, and lost: retrieval reached
+        # 0.556 of required pairs against the vector arm's 0.611, but converted only 33%
+        # of that into citations against 60%. One-sentence quotes stripped of context
+        # appear to be too thin to build a citable answer from. Mapping a quote back to
+        # its chunk by substring only works for 57% of nodes — chunking normalises
+        # whitespace and some quotes straddle boundaries — so the routing is done at
+        # paper granularity, where it is exact.
+        self._vector_store = vector_store
+        self._chunks_per_paper = chunks_per_paper
 
     def _load_names(self) -> None:
         """Embed every seedable node name once, on first use."""
@@ -208,9 +223,38 @@ class TypedGraphSystem:
             max_tokens=4096,
         )
 
+    def _chunk_evidence(self, query: str, papers: set[str]) -> tuple[str, dict[str, str]]:
+        """Chunks from the traversed papers, ranked by query similarity.
+
+        The store has no per-paper filter, so over-fetch and keep what the traversal
+        selected — the same over-fetch-then-filter shape `FaissVectorStore` already uses
+        for its corpus filter.
+        """
+        qvec = self._embedder.encode([query])[0]
+        pool = self._vector_store.search(qvec, top_k=600, corpus="fulltext")
+        handles: dict[str, str] = {}
+        by_paper: dict[str, str] = {}
+        per_paper: dict[str, int] = {}
+        blocks: list[str] = []
+        for hit in pool:
+            pid = hit.chunk.paper_id
+            if pid not in papers or per_paper.get(pid, 0) >= self._chunks_per_paper:
+                continue
+            per_paper[pid] = per_paper.get(pid, 0) + 1
+            full = f"paper:{pid}"
+            if full not in by_paper:
+                by_paper[full] = f"P{len(by_paper) + 1}"
+                handles[by_paper[full]] = full
+            blocks.append(f"[{by_paper[full]}] ({hit.chunk.section_type}) {hit.chunk.text}")
+        return "\n\n".join(blocks), handles
+
     def answer(self, query: str) -> SystemOutput:
         hits = self._retrieve(query)
-        evidence, handles = self._format_evidence(hits)
+        if self._vector_store is not None:
+            papers = {h.paper_id for h in hits if h.paper_id}
+            evidence, handles = self._chunk_evidence(query, papers)
+        else:
+            evidence, handles = self._format_evidence(hits)
         if not evidence:
             return SystemOutput("No relevant evidence was retrieved.", [], "")
         text, cited = VectorRAGSystem._resolve_handles(self._synthesize(query, evidence), handles)

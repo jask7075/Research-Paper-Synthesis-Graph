@@ -26,7 +26,7 @@ from rpsg.stores.vector_store import FaissVectorStore
 log = get_logger(__name__)
 
 _CORPUS = {"vector_abstract": "abstract", "vector_fulltext": "fulltext"}
-_SYSTEMS = (*_CORPUS, "typed_graph")
+_SYSTEMS = (*_CORPUS, "typed_graph", "typed_graph_chunks")
 
 
 def main() -> None:
@@ -49,13 +49,21 @@ def main() -> None:
         )
     )
     system: System
-    if args.system == "typed_graph":
+    if args.system.startswith("typed_graph"):
         # Reads the graph, not the vector index. `hops` and `max_nodes` take the module
         # defaults, both set from the retrieval sweep rather than chosen.
+        routed = args.system == "typed_graph_chunks"
+        vs = None
+        if routed:
+            # Router variant: traversal picks the papers, chunks supply the evidence, so
+            # both arms are compared on the same evidence unit.
+            vs = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
+            vs.load()
         system = TypedGraphSystem(
             name=args.system,
             embedder=embedder,
             store=KuzuGraphStore(str(settings.paths.kuzu_db)),
+            vector_store=vs,
         )
     else:
         vector_store = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
