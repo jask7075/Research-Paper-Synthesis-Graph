@@ -100,14 +100,53 @@ def build_graph() -> None:
         # acronym rule needs the whole corpus: whether `VQE` is ambiguous depends on every
         # paper, not the one being extracted. Doing it per paper would make a node's
         # identity depend on ingestion order.
-        mapping, merges = build_entity_map(
-            [n.model_dump() for r in results for n in r.nodes]
-        )
+        all_nodes = [n.model_dump() for r in results for n in r.nodes]
+        mapping, merges = build_entity_map(all_nodes)
+        # Second tier: pairs the deterministic rules cannot see. Embeddings nominate
+        # candidates, a model rules on each, and only accepted pairs merge. Skipped
+        # unless a verdict cache exists, so a build never silently starts paying for
+        # adjudication -- run scripts/merge_entities.py to produce one.
+        mapping.update(_semantic_merges(all_nodes, mapping, settings))
         _write_entity_map(settings.paths.data_processed / "entity_map.json", mapping, merges)
         for result in results:
             store.upsert_nodes(_resolve_nodes(result.nodes, mapping))
             store.upsert_edges(_resolve_edges(result.edges, mapping))
     log.info("graph built at %s", settings.paths.kuzu_db)
+
+
+def _semantic_merges(
+    nodes: list[dict], deterministic: dict[str, str], settings: object
+) -> dict[str, str]:
+    """Accepted verdicts from the cache, as an id map.
+
+    Cache-only by design: adjudicating ~3,500 pairs costs money, and a store rebuild
+    should be free and repeatable. `scripts/merge_entities.py` populates the cache.
+
+    Nodes the deterministic pass already moved are skipped — resolving through two maps
+    would need chaining, and `apply_map` is deliberately single-hop.
+    """
+    from rpsg.extraction.semantic_merge import Verdict, merge_map
+
+    cache_path = settings.paths.data_processed / "merge_verdicts.json"  # type: ignore[attr-defined]
+    if not cache_path.exists():
+        log.info("no merge_verdicts.json — semantic tier skipped")
+        return {}
+    cache = json.loads(cache_path.read_text())
+    by_name: dict[str, list[str]] = {}
+    for n in nodes:
+        by_name.setdefault(n["name"], []).append(n["id"])
+    verdicts: list[Verdict] = []
+    for key, result in cache.items():
+        if not result.get("same"):
+            continue
+        a_name, _, b_name = key.partition("␟")
+        for a_id in by_name.get(a_name, []):
+            for b_id in by_name.get(b_name, []):
+                if a_id != b_id and a_id not in deterministic and b_id not in deterministic:
+                    verdicts.append(Verdict(a_id, b_id, a_name, b_name, 1.0, True, ""))
+    extra = merge_map(verdicts)
+    log.info("semantic tier: %d further ids merged", len(extra))
+    return extra
 
 
 def _resolve_nodes(nodes: list[Node], mapping: dict[str, str]) -> list[Node]:
