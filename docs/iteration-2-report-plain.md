@@ -5,6 +5,7 @@ went wrong, and what came out of it. Numbers are as measured; nothing is rounded
 favour.
 
 The technical version with full tables is in
+[iteration-2-report.md](iteration-2-report.md); the running working notes are in
 [iteration-2-notes.md](iteration-2-notes.md).
 
 ---
@@ -390,7 +391,43 @@ each as contradicting, weakening, or neither.
 > results in "no disagreement". A wrongly-claimed contradiction is worse than a missed one,
 > because it would send a question to a disagreement no paper actually made.
 
-*(Running at time of writing: 16,972 pairs, roughly $2.)*
+**What happened.** 16,972 pairs compared, at a cost of $1.61. The model accepted
+3,072 of them — a 93-fold increase on the 33 links we had.
+
+Before using them, we checked. 60 pairs were re-judged by hand, without being shown what
+the model had decided:
+
+| | agreement with the model |
+|---|---|
+| pairs it called a direct conflict | 25% |
+| pairs it called a weakening | 25% |
+| pairs it called unrelated | 90% |
+
+**About a third of the accepted links are real.** Of the 3,072, roughly 1,000 belong and
+2,000 do not. So they were **not added to the map**, and the one-in-nine result stands.
+
+The mistake is one specific thing, and it is the thing we had explicitly told the model not
+to do. Twelve of the twenty wrongly-accepted conflicts are two papers *describing their own
+different setups*:
+
+- *"we handle noise that differs per qubit"* against *"our analysis is restricted to
+  single-qubit noise"* — each paper stating what it did, not disagreeing
+- *"we set two-qubit errors to double the single-qubit rate"* against *"we treat
+  single-qubit gates as perfect"* — two chosen simulation settings
+
+Several accepted pairs plainly *agree* with each other. The obvious next attempt is to put
+these exact examples into the instructions as things that are **not** disagreements, and
+re-run — the previous answers are cached, so only the changed ones cost anything.
+
+> **A safeguard added afterwards.** The build step would have picked these links up
+> automatically the next time it ran, purely because the file existed — silently
+> contradicting this report. A set of links is now treated as a *proposal* until someone
+> marks it approved, and the build refuses an unapproved one and says so. The decision is
+> enforced by the code rather than by someone remembering.
+
+> **Honesty note.** The 60 re-judgements were made by a different AI model, not a person.
+> Different model, different instructions, and it could not see the original verdict — so
+> it puts a bound on how wrong the pass is rather than settling it.
 
 ---
 
@@ -417,6 +454,62 @@ finds X and has no path at all to the second half. That is the best current expl
 why relational questions score worst, and it is not one the two earlier experiments ruled
 out: they tested whether the links were *good*, not whether the right *kinds* of link
 existed.
+
+---
+
+## What you can actually ask it
+
+Everything above measures parts. This is what the finished thing does for someone typing a
+question into `python scripts/ask.py "..."`.
+
+**What it knows about.** 271 readable papers, almost all quantum computing — chemistry
+simulation, optimisation algorithms, training difficulties, error correction and
+mitigation, classical simulation, quantum machine learning — plus a cluster on classical
+community detection. Ask outside that and it still answers, from whatever is nearest, which
+is worse than declining.
+
+**Works.** Single-fact questions with a specific answer in one paper.
+
+> *"What error rate did the below-threshold surface code experiment report, and on which
+> processor?"*
+
+Best-performing type by a clear margin.
+
+**Works, with care.** "What's out there on X" survey questions. It produces a reasonable
+overview with real citations. Expect omissions, and expect roughly a third of the claims to
+carry a citation that does not quite support them — graded by hand, this scored 2.8 out of
+5, with 11 of 34 answers scoring the lowest mark.
+
+**Works badly.** Multi-part questions — *"which methods, and what does each cost"*. It names
+the parts and connects them poorly. You get a list, not a synthesis. This is the commonest
+kind of question and the one the whole approach was built for.
+
+**Does not work at all.** Three things:
+
+- *"Do papers disagree about X?"* — one question in nine gets both sides surfaced. It will
+  usually present one position as settled.
+- *"What hardware or code does this paper provide?"* — it finds 17% of the details papers
+  actually state, and **no code links at all**, including five papers with a plain GitHub
+  address printed in the text.
+- *"Is there any work on X?"* where the honest answer is *no*. It has no way to know the
+  collection doesn't cover something, so it will answer from the nearest thing it finds.
+  This is the most dangerous of the three, because it fails silently.
+
+**Practical advice.** Ask narrow and factual, then follow up, rather than asking one broad
+question. Use `--show-evidence` and read the passages — the single most reliable finding of
+this whole iteration is that answers *look* better sourced than they are.
+
+### Where the remaining headroom is
+
+1. **Recording disagreements between papers.** Biggest gap, clearest route: the failure is
+   one instruction pattern and the fix is worked examples.
+2. **Finding code and data links.** Zero out of fifteen while the URLs sit in the text. A
+   routing problem, so it should be cheap.
+3. **Multi-part questions.** The central weakness — and note that the two obvious
+   explanations have already been ruled out by experiment, so the next idea has to come
+   from somewhere new. The traversal measurement above is the current best candidate.
+4. **Knowing when the collection has nothing.** Unbuilt, unmeasured, and the failure a
+   reader is least able to catch.
 
 ---
 
