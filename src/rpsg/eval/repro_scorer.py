@@ -46,8 +46,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from rpsg.eval.repro_gold import FIELDS, NOT_REPORTED, ReproRecord, _is_silent, normalize
-from rpsg.eval.repro_gold import Outcome, score_field
+from rpsg.eval.repro_gold import (
+    FIELDS,
+    NOT_REPORTED,
+    Outcome,
+    ReproRecord,
+    _is_silent,
+    normalize,
+    score_field,
+)
 
 #: (node type, attribute) pairs feeding each field, in preference order. `None` as the
 #: attribute means the node's own `name`.

@@ -46,7 +46,11 @@ def main() -> None:
     run = Path(args.run_dir)
     if not run.is_absolute():
         run = settings.paths.eval_runs / run
-    min_kappa = args.min_kappa if args.min_kappa is not None else settings.eval.calibration.min_quadratic_kappa
+    min_kappa = (
+        args.min_kappa
+        if args.min_kappa is not None
+        else settings.eval.calibration.min_quadratic_kappa
+    )
 
     human = {r["qid"]: r["grade"] for r in _jsonl(run / "human_grades.jsonl")}
     scores = {r["qid"]: r for r in _jsonl(run / "scores.jsonl")}
@@ -65,7 +69,11 @@ def main() -> None:
             continue
         hs, js = [int(a) for a, _ in pairs], [int(b) for _, b in pairs]
         per_criterion.append(calibrate_criterion(hs, js, c, min_kappa))
-        lens = [len(answers.get(q, "")) for q in human if q in scores and human[q].get(c) is not None]
+        lens = [
+            len(answers.get(q, ""))
+            for q in human
+            if q in scores and human[q].get(c) is not None
+        ]
         biases.append(length_bias(lens[: len(js)], js, c, args.alpha))
 
     report = CalibrationReport(per_criterion=per_criterion, length_bias=biases)

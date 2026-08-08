@@ -39,3 +39,6 @@ eval/runs/*
 research-paper-synthesis-graph.tex
 # Generated state reports; one snapshot lives at docs/pipeline-state.md
 reports/
+
+#Plain reports
+#docs/iteration-2-report-plain.md

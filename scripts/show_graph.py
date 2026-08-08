@@ -23,7 +23,6 @@ relation, since "these two are connected" is far less informative than "this met
 from __future__ import annotations
 
 import argparse
-import json
 from collections import Counter
 
 from rpsg.config import get_settings

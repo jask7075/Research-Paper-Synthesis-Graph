@@ -25,7 +25,7 @@ indistinguishable in principle.
 from __future__ import annotations
 
 import random
-from collections import Counter, defaultdict
+from collections import defaultdict
 from typing import Any, NamedTuple
 
 #: Equal n per band, not proportional. Proportional sampling would put ~2 nodes in the
@@ -119,7 +119,10 @@ def precision(labels: list[dict[str, Any]]) -> dict[str, Any]:
         ok = sum(1 for r in rows if r["correct"])
         return {"n": len(rows), "correct": ok, "precision": ok / len(rows)}
 
-    by_band = {b: _p([r for r in judged if r.get("band") == b]) for b in {r["band"] for r in judged}}
+    by_band = {
+        b: _p([r for r in judged if r.get("band") == b])
+        for b in {r["band"] for r in judged}
+    }
     by_type = {
         t: _p([r for r in judged if r.get("node_type") == t])
         for t in {r["node_type"] for r in judged}

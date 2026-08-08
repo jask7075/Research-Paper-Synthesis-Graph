@@ -106,8 +106,9 @@ def test_precision_breaks_out_by_band_and_type():
 
 
 def test_flat_precision_means_confidence_carries_no_signal():
-    rows = [{"band": b, "node_type": "Claim", "correct": True} for b in ("0.65-0.75", "0.85-1.01")]
-    rows += [{"band": b, "node_type": "Claim", "correct": False} for b in ("0.65-0.75", "0.85-1.01")]
+    bands = ("0.65-0.75", "0.85-1.01")
+    rows = [{"band": b, "node_type": "Claim", "correct": True} for b in bands]
+    rows += [{"band": b, "node_type": "Claim", "correct": False} for b in bands]
     assert confidence_is_informative(precision(rows)) is False
 
 
