@@ -92,6 +92,31 @@ def _paper_of(node: dict[str, Any]) -> str | None:
     return attrs.get("from_paper") if isinstance(attrs, dict) else None
 
 
+def is_comparable(node: dict[str, Any]) -> bool:
+    """Can this node take part in a contradiction at all?
+
+    Proposition-shaped and actually named. A `Method` or `Dataset` is a thing rather than
+    an assertion, so nothing it could be paired with has a possible verdict.
+    """
+    return node.get("type") in CLAIM_TYPES and bool((node.get("name") or "").strip())
+
+
+def can_conflict(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """Could these two claims be in tension — before reading what they say?
+
+    Different papers, both known. Same-paper pairs are excluded because a paper's internal
+    contradictions are what per-paper extraction already emits, so re-deriving them would
+    double-count and spend adjudication re-finding known edges. A node with no
+    `from_paper` is skipped outright rather than assumed cross-paper, since that assumption
+    is exactly what the exclusion exists to prevent.
+
+    Separated from `candidate_pairs` so the rule is testable without faiss, which lives in
+    the optional `vector` extras and is absent from a `[dev]` install.
+    """
+    pa, pb = _paper_of(a), _paper_of(b)
+    return a["id"] != b["id"] and pa is not None and pb is not None and pa != pb
+
+
 def candidate_pairs(
     nodes: list[dict[str, Any]],
     embed: Any,
@@ -101,17 +126,20 @@ def candidate_pairs(
 ) -> list[tuple[str, str, float]]:
     """(id_a, id_b, similarity) for claim pairs from *different* papers above `floor`.
 
-    Same-paper pairs are excluded: a paper's internal contradictions are what per-paper
-    extraction already emits, so re-deriving them here would double-count and spend
-    adjudication re-finding known edges.
+    Eligibility is `is_comparable` and `can_conflict`; this adds only the nearest-neighbour
+    search that finds pairs worth asking about.
     """
-    import faiss
-    import numpy as np
-
-    claims = [n for n in nodes if n["type"] in CLAIM_TYPES and (n.get("name") or "").strip()]
+    claims = [n for n in nodes if is_comparable(n)]
     if len(claims) < 2:
         return []
-    papers = [_paper_of(n) for n in claims]
+
+    # Imported here rather than at the top of the function, and not at module level, because
+    # faiss and numpy live in the optional `vector` extras. CI installs `[dev]` only, so an
+    # import above the early return makes every caller need faiss -- including the cases
+    # that provably never search, which is what broke the test suite on a clean install.
+    # `semantic_merge.candidate_pairs` places it the same way for the same reason.
+    import faiss
+    import numpy as np
 
     vecs = np.asarray(embed.encode([c["name"] for c in claims]), dtype="float32")
     vecs /= np.linalg.norm(vecs, axis=1, keepdims=True) + 1e-9
@@ -131,10 +159,10 @@ def candidate_pairs(
     for i in range(len(claims)):
         for j_pos in range(1, k):
             j, sim = int(idxs[i][j_pos]), float(sims[i][j_pos])
-            if sim < floor or papers[i] is None or papers[i] == papers[j]:
+            if sim < floor or not can_conflict(claims[i], claims[j]):
                 continue
             a, b = sorted((claims[i]["id"], claims[j]["id"]))
-            if a != b and (a, b) not in seen:
+            if (a, b) not in seen:
                 seen.add((a, b))
                 out.append((a, b, sim))
     log.info("%d cross-paper claim pairs above %.2f (of %d claims)", len(out), floor, len(claims))
