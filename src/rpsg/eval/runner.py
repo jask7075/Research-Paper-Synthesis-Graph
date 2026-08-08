@@ -79,9 +79,21 @@ def run_system(
             answer = Answer(qid=g.qid, text=out.text, cited_paper_ids=cited)
 
             answers_fh.write(answer.model_dump_json() + "\n")
+            # `evidence` itself, not just its length. The judge scores `attribution`
+            # with the retrieved context in its prompt; a human grader reading only
+            # the answer is judging whether claims *look* sourced while the judge
+            # checks whether they *are*. Calibrating one against the other then
+            # measures the asymmetry rather than the judge: on the first calibrated
+            # run that criterion came back at kappa=+0.02, rho=+0.04, p=0.92 — no
+            # relationship at all — while the other four correlated strongly.
             traces_fh.write(
                 json.dumps(
-                    {"qid": g.qid, "system": system.name, "evidence_chars": len(out.evidence)}
+                    {
+                        "qid": g.qid,
+                        "system": system.name,
+                        "evidence": out.evidence,
+                        "evidence_chars": len(out.evidence),
+                    }
                 )
                 + "\n"
             )
@@ -114,6 +126,16 @@ def _mean(xs: list[float]) -> float:
     return sum(xs) / len(xs) if xs else float("nan")
 
 
+def _applicable(rows: list[dict], key: str) -> list[float]:
+    """Values for `key`, dropping queries the metric does not apply to.
+
+    `deterministic_scores` returns None where the gold gives a metric nothing to measure.
+    Coercing those to 0 would punish the system for an unasked question and averaging them
+    as 1.0 — the previous behaviour — credited it for one.
+    """
+    return [r[key] for r in rows if r.get(key) is not None]
+
+
 def _write_report(
     system_name: str,
     scores: list[dict],
@@ -126,10 +148,15 @@ def _write_report(
     metric_keys = [k for k in scores[0] if k not in ("qid", "query_type")]
 
     def table(rows: list[dict]) -> str:
-        header = "| metric | mean |\n|---|---|\n"
-        body = "".join(
-            f"| {k} | {_mean([r[k] for r in rows]):.3f} |\n" for k in metric_keys
-        )
+        # `n` is shown per metric, not just per section: a mean over the 3 queries that
+        # encode a contradiction must not read like a mean over all 10.
+        header = "| metric | mean | n |\n|---|---|---|\n"
+        body = ""
+        for k in metric_keys:
+            vals = _applicable(rows, k)
+            mean = f"{_mean(vals):.3f}" if vals else "—"
+            n = f"{len(vals)}" if len(vals) == len(rows) else f"{len(vals)} of {len(rows)}"
+            body += f"| {k} | {mean} | {n} |\n"
         return header + body
 
     lines = [f"# Eval report — {system_name}\n", f"Queries: {len(scores)}\n"]

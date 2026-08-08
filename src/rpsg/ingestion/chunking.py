@@ -194,6 +194,7 @@ def _emit_chunk(
     section: Section,
     accumulated: list[tuple[int, int]],
     corpus: str,
+    section_index: int = 0,
 ) -> None:
     """Append one chunk covering the accumulated sentence spans (no-op if empty).
 
@@ -214,7 +215,15 @@ def _emit_chunk(
         return
     chunks.append(
         Chunk(
-            id=f"{paper_id}::{section.section_type}::{start}-{end}",
+            # `section_index` is load-bearing, not decoration. `char_start`/`char_end`
+            # are offsets into *this section's* text and restart at 0 in every section,
+            # while a parsed paper routinely has several sections typed `other` -- so
+            # paper + type + offsets is not unique. Measured on an 11,020-chunk index:
+            # 43 ids each covered two different chunks of the same paper, always with
+            # different text. A colliding id means two spans share an identity, so a
+            # store keyed by id returns whichever was written last and retrieval can
+            # silently serve the wrong passage.
+            id=f"{paper_id}::{section_index}::{section.section_type}::{start}-{end}",
             paper_id=paper_id,
             text=text,
             section_title=section.title,
@@ -243,7 +252,7 @@ def chunk_sections(
     """
     chunks: list[Chunk] = []
 
-    for section in sections:
+    for section_index, section in enumerate(sections):
         if section.section_type in DROP_SECTION_TYPES:
             continue
         spans = _sentence_spans(section.text)
@@ -258,12 +267,12 @@ def chunk_sections(
 
             # A single sentence longer than the target becomes its own chunk.
             if span_tokens >= target_tokens and not current:
-                _emit_chunk(chunks, paper_id, section, [span], corpus)
+                _emit_chunk(chunks, paper_id, section, [span], corpus, section_index)
                 current, current_tokens = [], 0
                 continue
 
             if current and current_tokens + span_tokens > target_tokens:
-                _emit_chunk(chunks, paper_id, section, current, corpus)
+                _emit_chunk(chunks, paper_id, section, current, corpus, section_index)
                 # Carry back trailing sentences up to `overlap_tokens` for continuity.
                 carry: list[tuple[int, int]] = []
                 carry_tokens = 0
@@ -278,7 +287,7 @@ def chunk_sections(
             current.append(span)
             current_tokens += span_tokens
 
-        _emit_chunk(chunks, paper_id, section, current, corpus)
+        _emit_chunk(chunks, paper_id, section, current, corpus, section_index)
         if not respect_sections:
             # Sections were meant to be merged; this branch exists only so the flag is
             # honest. Merging is not recommended — see the module docstring.

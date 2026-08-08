@@ -10,13 +10,13 @@ systems:
   vector_abstract:
     kind: vector
     corpus: abstract
-    top_k: 20                 # duplicated as the --top-k default in 06_run_eval.py
+    top_k: 60                 # duplicated as the --top-k default in 06_run_eval.py
     note: "Floor. Shows the abstract-only ceiling."
 
   vector_fulltext:            # <-- the real baseline to beat
     kind: vector
     corpus: fulltext
-    top_k: 20                 # duplicated as the --top-k default in 06_run_eval.py
+    top_k: 60                 # duplicated as the --top-k default in 06_run_eval.py
     note: "Essential baseline. If the typed graph can't beat this on relational queries, the thesis fails."
 
   citation_graph:

@@ -22,7 +22,24 @@ class KuzuGraphStore(GraphStore):
     def __init__(self, db_path: str) -> None:
         import kuzu  # imported lazily so tests that don't touch the graph don't need it
 
-        self._db = kuzu.Database(db_path)
+        try:
+            self._db = kuzu.Database(db_path)
+        except RuntimeError as exc:
+            # Kuzu is single-process: one open handle locks the file, readers included.
+            # The raw message is "IO exception: Could not set lock on file", which names
+            # the symptom and not the cause -- and the cause is almost always a store
+            # rebuild or an eval run still going in another terminal, not a corrupt
+            # database. Worth translating, because the obvious reaction to an IO error on
+            # a database file is to delete it.
+            if "lock" not in str(exc).lower():
+                raise
+            raise RuntimeError(
+                f"{db_path} is locked by another process.\n"
+                "Kuzu allows one process at a time, readers included. Something else is "
+                "holding it -- typically scripts/05_build_stores.py or scripts/06_run_eval.py "
+                "still running. Wait for it to finish rather than deleting the database; "
+                "the lock clears on exit."
+            ) from exc
         self._conn = kuzu.Connection(self._db)
 
     def init_schema(self) -> None:

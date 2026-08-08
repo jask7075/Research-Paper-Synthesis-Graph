@@ -79,3 +79,23 @@ def test_degenerate_chunks_are_dropped():
 
 def test_approx_tokens_monotonic():
     assert approx_tokens("one two three") < approx_tokens("one two three four five six")
+
+def test_chunk_ids_are_unique_across_same_typed_sections():
+    """`char_start`/`char_end` restart at 0 in every section, and a parsed paper routinely
+    has several sections typed `other`. Without the section index in the id, two different
+    spans of one paper share an identity -- measured at 43 collisions on an 11,020-chunk
+    index -- and a store keyed by id serves whichever was written last."""
+    from rpsg.ingestion.chunking import Section, chunk_sections
+
+    body = "Alpha beta gamma delta. " * 8
+    other = "Zeta eta theta iota. " * 8
+    chunks = chunk_sections(
+        "p1",
+        [
+            Section(title="A", section_type="other", text=body),
+            Section(title="B", section_type="other", text=other),
+        ],
+    )
+    ids = [c.id for c in chunks]
+    assert len(ids) == len(set(ids)), f"collision: {ids}"
+    assert len({c.text for c in chunks}) == len(chunks)
