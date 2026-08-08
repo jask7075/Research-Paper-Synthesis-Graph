@@ -160,7 +160,7 @@ on `lookup`, the type nobody claimed graphs would help with.
 
 At n=3 (Iteration 1 gold) this read 0.667. The cause is structural: the graph holds 8
 `refutes` and 25 `undercuts` edges, because per-paper extraction can only observe
-contradictions a paper states about itself. Addressed — with a caveat — in §8.2.
+contradictions a paper states about itself. Attempted and rejected in §8.2.
 
 ### 4.4 Domain split
 
@@ -344,41 +344,147 @@ paper. A colliding id means two spans share an identity and an id-keyed store se
 whichever was written last. Fixed by including the section index; requires a re-chunk and
 re-index to take effect on stored data.
 
-### 8.2 Cross-paper contradictions — run, not yet trusted
+### 8.2 Cross-paper contradictions — attempted, audited, rejected
 
-16,972 cross-paper claim pairs above cosine 0.90, adjudicated three ways, $1.61.
+**Motivation.** Nine of the 34 gold queries ask about a disagreement, and a correct answer
+must surface both sides rather than report one as settled. That requires the graph to
+*encode* the disagreement, and it holds 33 such edges across 271 papers. The cause is
+structural: extraction reads one paper at a time, so the only conflicts it can observe are
+ones a paper states about itself. Noticing that paper A conflicts with paper B requires
+holding both at once, which per-paper extraction never does. §4.3 is the consequence —
+1 of 9, on every arm including plain vector search.
+
+**The pass.** 16,972 cross-paper claim pairs above cosine 0.90, adjudicated three ways,
+$1.61.
 
 ```
 3,072 edges accepted (18.1%)   refutes 163   undercuts 2,909   neither 13,900
 spanning 249 of 271 papers
 ```
 
-That would take the contradiction layer from 33 edges to 3,072. **The edges have not been
-applied to the graph.** A random sample of 4 `refutes` and 4 `undercuts` found roughly half
-the `refutes` unconvincing, and the false positives are exactly the failure mode the prompt
-warns against:
+A 93× increase in the contradiction layer.
 
-- *"Number of function evaluations exceeds effective search space"* vs *"SBPLX function
-  evaluations limited to 42,000"* — different quantities from different experimental setups
-- *"ADAPT-VQE determines a quasi-optimal ansatz"* vs *"The work does not use adaptive ansatz
-  schemes"* — B states a different paper's own design choice, not a conflict with A
+**The audit.** 60 pairs, 20 per model verdict, labelled without sight of the model's
+decision.
 
-An 8-item sample cannot estimate a rate, but it is enough to withhold the number as a
-result. A labelled audit on the pattern of §5.3 is required before these edges enter the
-graph or the acceptance figure is quoted.
+```
+exact agreement 46.7%  (28/60)
+
+  model        human ->   refutes  undercuts  neither
+  refutes                       5          3       12
+  undercuts                     0          5       15
+  neither                       0          2       18
+```
+
+**Edge precision 32.5%** — the fraction of accepted pairs a human also calls a
+disagreement, counting `refutes` and `undercuts` as interchangeable, since a mistyped edge
+is still a real one. Of 3,072 accepted, **~998 are real and ~2,074 are not.** Separately,
+2 of 20 rejected pairs are genuine disagreements the pass discarded.
+
+**Decision: the edges are not applied**, and the acceptance figure is not reported as a
+result. §4.3 stands unimproved.
+
+**The failure is a single pattern**, and it is the one the prompt already warns against.
+Twelve of the twenty spurious `refutes` are two papers describing their own different
+scopes rather than disagreeing:
+
+- *"general deterministic treatment of per-qubit noise"* vs *"the general-noise analysis is
+  restricted to single-qubit noise"* — each paper stating what it did
+- *"2-qubit Pauli error rate set to double the single-qubit rate"* vs *"single-qubit gates
+  are perfect"* — two chosen noise models, not a factual conflict
+
+Several accepted pairs plainly *agree*: both stating that sampling overhead grows
+exponentially, both stating that current hardware falls far short. A revised prompt
+carrying these as explicit worked negatives is the obvious next attempt, and the verdict
+cache means a re-run costs only what changes.
 
 **Design note.** In entity merging a high similarity floor acts as a *precision* filter —
 two names for one method are near-identical strings. Here the relation inverts:
 contradictory claims are similar *by construction*, since they concern the same subject and
 differ only in what they assert. Similarity is therefore purely a recall filter and carries
 no information about whether a conflict exists; the model performs the entire
-discriminative step. That is also why over-acceptance is the expected failure mode, and why
-everything fails closed to `neither` — a false `refutes` edge would route a refutation
-query to a disagreement no paper asserts.
+discriminative step. Over-acceptance is thus the predicted failure mode, and it is what
+occurred. Everything fails closed to `neither` for the same reason — a false `refutes` edge
+would route a refutation query to a disagreement no paper asserts.
+
+**Audit caveats.** The labels are one model's, not a human's: a different model, a
+different prompt, and no sight of the original verdict, so this *bounds* the error rate
+rather than settling it. Separately, `sample_pairs` originally emitted the three strata in
+order, so position alone revealed the model's verdict; it now shuffles, but these labels
+were made against the unshuffled sheet and were therefore not blind to the strata
+boundaries, though each pair was judged on its merits. A human spot-check of the 60 labels
+would resolve both.
 
 ---
 
-## 9. Threats to validity
+## 9. Operating envelope — what the system can be asked
+
+Everything above measures components. This section states what the assembled system does
+for someone typing a question into `scripts/ask.py`, since that is the only claim a reader
+can act on. Each band is the measured `must_cite_recall` for that query type at n=34, best
+arm quoted; judge figures are given only for calibrated criteria (§6).
+
+**Scope.** 271 readable papers, almost entirely quantum computing — VQE and quantum
+chemistry, QAOA, barren plateaus, error correction and mitigation, classical simulation,
+quantum machine learning — plus a cluster on classical community detection. Questions
+outside that are still answered, from whatever is nearest, which is worse than declining.
+
+### 9.1 Supported
+
+**Single-fact lookup — 0.500 to 0.667.** One paper, a specific reported value.
+
+> *"What logical error rate did the below-threshold surface code memory report, at what
+> distance, and on which processor?"*
+
+The best-performing type, and the only one where `typed_graph_chunks` leads.
+
+**Survey of a subfield — human `coverage` 3.0–3.5 / 5.** `coverage` is calibrated
+(κ=+0.72), so this figure is trustworthy.
+
+> *"Which error mitigation techniques exist, and what overhead does each impose?"*
+
+Expect real citations and real omissions. Expect also that roughly a third of claims carry
+a citation that does not fully support them: hand-graded `attribution` averaged 2.79/5 with
+11 of 34 answers scored 1.
+
+### 9.2 Weak
+
+**Multi-part relational — 0.202 to 0.357.** The system names the parts and connects them
+poorly; the output reads as a list rather than a synthesis. This is the majority query type
+and the one the architecture targets.
+
+### 9.3 Unsupported
+
+| ask | measured | why |
+|---|---|---|
+| *"Do papers disagree about X?"* | 1 of 9 surfaced | 33 contradiction edges in the graph (§8.2) |
+| *"What hardware / code does paper X provide?"* | 17% of stated facts; `code_url` 0/15 | §7.2 |
+| *"Is there any work on X?"* — expecting "no" | not measured | no mechanism to detect corpus absence |
+
+The third is the most dangerous, because it fails silently: the system cannot know the
+corpus does not cover something, so it answers from the nearest available material with no
+signal that it has done so.
+
+### 9.4 Scope for improvement, ordered by measured headroom
+
+1. **Contradiction encoding.** §8.2 is characterised, not unexplained: the failure is one
+   prompt pattern, the fix is worked negative examples, and the verdict cache makes a
+   re-run cost only what changes. Largest single gap, and the clearest route.
+2. **`ReproducibilityArtifact` routing.** `code_url` and `dataset_access` are 0-for-15 and
+   0-for-14 while missing five literal GitHub URLs in body text. A routing gap, not a
+   grounding failure, so it should be cheap.
+3. **Relational synthesis.** The 0.202 in §4.2 is the thesis's central weakness. Worth
+   noting that §5.1 and §5.2 have already ruled out the two obvious explanations —
+   duplicate nodes and edge quality — so the next hypothesis has to come from elsewhere.
+4. **`attribution` rubric.** The judge's range restriction (§6) means answer quality on
+   this axis currently cannot be tracked automatically at all.
+5. **Corpus-absence detection.** Unbuilt and unmeasured. A calibrated "the corpus does not
+   cover this" would remove the failure mode in §9.3 that a reader is least equipped to
+   catch.
+
+---
+
+## 10. Threats to validity
 
 **Sample size.** The primary result is n=34; §4.1 demonstrates the ±0.10 noise floor at
 n=10 by an ordering that changed. The ablations in §5.1 and §5.2 were run at n=10 and their
@@ -403,11 +509,12 @@ arm's standing depends on that choice.
 BM25-based grounding, and by never showing the authoring tools the system's own output —
 but not eliminated.
 
-**§8.2 unaudited**, and excluded from §1 accordingly.
+**§8.2 was audited by a model, not a human** (§8.2 audit caveats), and its edges are
+excluded from the graph and from §1 accordingly.
 
 ---
 
-## 10. Engineering record
+## 11. Engineering record
 
 Defects found and resolved, with the measurement that surfaced each.
 
@@ -440,14 +547,14 @@ the conclusion:
 
 ---
 
-## 11. Carried forward
+## 12. Carried forward
 
-- **Audit §8.2 before applying**, on the pattern of §5.3; then re-measure whether §4.3 moves
-  off 1-of-9
+- **Revise the §8.2 prompt with worked negatives, re-run, re-audit** — the pass is
+  rejected at 32.5% edge precision, not abandoned; §9.4 item 1
 - **Re-chunk and re-index** so §8.1 takes effect on stored data
 - **`attribution` rubric with anchored 1 and 5 examples** — the range restriction in §6
 - **`ReproducibilityArtifact` routing** — the 0-for-15 in §7.2 is a prompt gap, not a
   grounding one
-- **Inter-annotator agreement** — the single-grader threat in §9
+- **Inter-annotator agreement** — the single-grader threat in §10
 - **n ≥ 34 as the standing default** for any claimed result; the 10-query set is a
   development set only
