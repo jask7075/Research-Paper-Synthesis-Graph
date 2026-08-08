@@ -237,6 +237,27 @@ requires a contradiction layer that survives audit — the §8.2 attempt did not
 re-measurement. Until then it is a hypothesis with a measurement behind it, and it is the
 first explanation for §4.2 that has not already been eliminated.
 
+**Two fixes follow from it, and only one involves the graph.**
+
+1. *Add the missing edges*, so the traversal can reach the second half of the question.
+   Attempted in §8.2 and rejected at 32.5% edge precision; not abandoned.
+2. *Stop needing them.* An agent that decomposes *"which methods, and what limits each"*
+   into a retrieval for the methods and then one retrieval per method for its limitations
+   never traverses the missing edge, because the second hop becomes a second **query**
+   rather than a graph step.
+
+The second is not a graph improvement at all — it routes around the structure this
+iteration spent its effort on, which is why it belongs in a separate iteration with its own
+comparison rather than as a patch here. Both land on the same number (relational
+`must_cite_recall`, currently 0.202) and so are directly comparable. Both are scoped in
+[iteration-3-plan.md](iteration-3-plan.md).
+
+It is worth stating plainly that (2) succeeding would *not* vindicate the typed graph. It
+would show that multi-part questions need multi-step retrieval, which a vector baseline can
+also be given. What would vindicate the graph specifically is (2) working better when the
+planner consults it for what to ask next than when it does not — a comparison §5.2 makes
+necessary, since free citation edges match the extracted layer as a retriever.
+
 Reproducible with `scripts/show_graph.py`; see §2.
 
 ---
@@ -538,9 +559,10 @@ signal that it has done so.
 2. **`ReproducibilityArtifact` routing.** `code_url` and `dataset_access` are 0-for-15 and
    0-for-14 while missing five literal GitHub URLs in body text. A routing gap, not a
    grounding failure, so it should be cheap.
-3. **Relational synthesis.** The 0.202 in §4.2 is the thesis's central weakness. Worth
-   noting that §5.1 and §5.2 have already ruled out the two obvious explanations —
-   duplicate nodes and edge quality — so the next hypothesis has to come from elsewhere.
+3. **Relational synthesis.** The 0.202 in §4.2 is the thesis's central weakness. §5.1 and
+   §5.2 rule out duplicate nodes and edge quality; §4.5 supplies the surviving candidate,
+   edge *coverage*, and two ways to act on it — add the edges, or decompose the question so
+   they are never needed. The second does not involve the graph at all.
 4. **`attribution` rubric.** The judge's range restriction (§6) means answer quality on
    this axis currently cannot be tracked automatically at all.
 5. **Corpus-absence detection.** Unbuilt and unmeasured. A calibrated "the corpus does not
@@ -616,6 +638,10 @@ the conclusion:
 
 - **Revise the §8.2 prompt with worked negatives, re-run, re-audit** — the pass is
   rejected at 32.5% edge precision, not abandoned; §9.4 item 1
+- **Agentic decomposition as the alternative route to §4.5** — turning the second hop into
+  a second query rather than a graph traversal, which needs no new edges. Comparable to the
+  above on relational `must_cite_recall`; scoped in
+  [iteration-3-plan.md](iteration-3-plan.md)
 - **Re-chunk and re-index** so §8.1 takes effect on stored data
 - **`attribution` rubric with anchored 1 and 5 examples** — the range restriction in §6
 - **`ReproducibilityArtifact` routing** — the 0-for-15 in §7.2 is a prompt gap, not a

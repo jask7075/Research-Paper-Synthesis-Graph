@@ -455,6 +455,17 @@ why relational questions score worst, and it is not one the two earlier experime
 out: they tested whether the links were *good*, not whether the right *kinds* of link
 existed.
 
+**There are two ways to fix that, and only one of them involves the map.** Either record the
+missing links — tried, and rejected because two-thirds were wrong — or ask twice instead of
+walking: find the methods with one search, then run a fresh search for each method's
+weaknesses. The second never needs the missing link, because the second step becomes another
+question rather than another step across the map.
+
+The second approach is the subject of the next iteration. Worth being clear now that if it
+works, it does **not** vindicate the map: it would show that multi-part questions need
+multi-step searching, which ordinary search can be given too. What would vindicate the map
+is if consulting it to decide *what to ask next* beats not consulting it.
+
 ---
 
 ## What you can actually ask it
