@@ -139,3 +139,34 @@ def test_summary_reports_the_acceptance_rate_and_paper_span():
 
 def test_summary_says_so_when_nothing_was_adjudicated():
     assert "no pairs adjudicated" in summarize([])
+
+def test_an_unapproved_edge_set_is_not_applied_to_the_graph(tmp_path, monkeypatch, caplog):
+    """An adjudicated set is a proposal until audited. The first pass scored 32.5% edge
+    precision and was rejected; applying on file presence alone would have put ~2,000
+    fabricated disagreements into the graph on the next rebuild."""
+    import importlib.util
+    import json
+    import logging
+
+    spec = importlib.util.spec_from_file_location("stage05", "scripts/05_build_stores.py")
+    stage05 = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(stage05)
+
+    class Paths:
+        data_processed = tmp_path
+
+    class Settings:
+        paths = Paths()
+
+    edge = {"src": "claim:1", "dst": "claim:2", "type": "refutes",
+            "confidence": 0.9, "evidence": []}
+
+    (tmp_path / "contradictions.json").write_text(
+        json.dumps({"approved": False, "edges": [edge]}))
+    with caplog.at_level(logging.WARNING):
+        assert stage05._contradiction_edges(Settings()) == []
+    assert "not approved" in caplog.text
+
+    (tmp_path / "contradictions.json").write_text(
+        json.dumps({"approved": True, "edges": [edge]}))
+    assert len(stage05._contradiction_edges(Settings())) == 1

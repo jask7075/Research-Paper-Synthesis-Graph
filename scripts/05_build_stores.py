@@ -168,7 +168,20 @@ def _contradiction_edges(settings: object) -> list[Edge]:
     if not path.exists():
         log.info("no contradictions.json -- cross-paper contradiction pass skipped")
         return []
-    raw = json.loads(path.read_text()).get("edges", [])
+    data = json.loads(path.read_text())
+    # An adjudicated set is a *proposal* until it has been audited. The first pass scored
+    # 32.5% edge precision -- ~2,000 of 3,072 edges asserted a disagreement no paper made
+    # -- and was rejected. Applying on mere file presence would have put those in the graph
+    # on the next rebuild, silently contradicting the report. The flag makes the audit
+    # decision enforceable in code rather than a note someone has to remember.
+    if not data.get("approved"):
+        log.warning(
+            "contradictions.json is present but not approved (%d edges) -- skipping. "
+            "Audit with scripts/audit_contradictions.py, then set approved: true.",
+            len(data.get("edges", [])),
+        )
+        return []
+    raw = data.get("edges", [])
     edges = [Edge(**e) for e in raw]
     log.info("cross-paper contradictions: %d edges", len(edges))
     return edges

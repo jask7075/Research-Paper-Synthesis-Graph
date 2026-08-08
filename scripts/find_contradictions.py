@@ -93,9 +93,12 @@ def main() -> None:
         workers=args.workers,
     )
     edges = to_edges(found)
-    out_path.write_text(json.dumps({"floor": args.floor, "edges": edges}, indent=2))
+    out_path.write_text(
+        json.dumps({"floor": args.floor, "approved": False, "edges": edges}, indent=2)
+    )
     print("\n" + summarize(found))
-    print(f"\nedges -> {out_path}; stage 05 applies them on the next build")
+    print(f"\nedges -> {out_path}, marked approved: false")
+    print("audit with scripts/audit_contradictions.py before setting approved: true")
     print("\n" + USAGE.summary())
 
 
