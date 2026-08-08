@@ -111,6 +111,10 @@ def build_graph() -> None:
         for result in results:
             store.upsert_nodes(_resolve_nodes(result.nodes, mapping))
             store.upsert_edges(_resolve_edges(result.edges, mapping))
+        # Cross-paper contradictions, if a pass has been run. Applied after the per-paper
+        # edges so both live in one graph, and resolved through the same map -- a merged
+        # endpoint must not leave a dangling edge.
+        store.upsert_edges(_resolve_edges(_contradiction_edges(settings), mapping))
     log.info("graph built at %s", settings.paths.kuzu_db)
 
 
@@ -147,6 +151,27 @@ def _semantic_merges(
     extra = merge_map(verdicts)
     log.info("semantic tier: %d further ids merged", len(extra))
     return extra
+
+
+def _contradiction_edges(settings: object) -> list[Edge]:
+    """`refutes` / `undercuts` edges from a cross-paper pass, if one exists.
+
+    File-only by design, like the semantic merge cache: adjudication costs money and a
+    store rebuild should be free. `scripts/find_contradictions.py` produces it.
+
+    Per-paper extraction can only see contradictions a paper states about itself, which
+    yielded 8 `refutes` and 25 `undercuts` across 271 papers -- and 1 of 9 refutation gold
+    queries surfaced its contradiction on every arm. A graph cannot route to a
+    disagreement it does not encode.
+    """
+    path = settings.paths.data_processed / "contradictions.json"  # type: ignore[attr-defined]
+    if not path.exists():
+        log.info("no contradictions.json -- cross-paper contradiction pass skipped")
+        return []
+    raw = json.loads(path.read_text()).get("edges", [])
+    edges = [Edge(**e) for e in raw]
+    log.info("cross-paper contradictions: %d edges", len(edges))
+    return edges
 
 
 def _resolve_nodes(nodes: list[Node], mapping: dict[str, str]) -> list[Node]:

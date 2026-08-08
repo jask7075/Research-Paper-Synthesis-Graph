@@ -1,330 +1,453 @@
-# RPSG — Iteration 2 Report
+# Iteration 2 — technical report
 
-**Status: core experiment complete.** Branch `iteration-2`, 8 commits, 2026-08-06.
-**Thesis under test:** typed-graph retrieval beats vector and citation-graph baselines,
-broken out by query type.
+Supersedes the previous version of this file, whose headline claim (`typed_graph_chunks`
+beating vector retrieval at 0.483) did not survive the re-extraction in §3.2. The prior
+text is recoverable in git at `e77f5f2`.
 
-Iteration 1 and its numbers are in [iteration-1-report.md](iteration-1-report.md). Running
-decisions are in [iteration-2-notes.md](iteration-2-notes.md); this is the standalone
-account.
-
----
-
-## 1. Headline
-
-**Traversal is a better paper selector than similarity search. Node evidence is not a
-usable synthesis input.** Both halves are measured, and separating them took two runs of
-the same system.
-
-| | value |
-|---|---|
-| Best arm on citation metrics | `typed_graph_chunks` — `must_cite_recall` **0.483** |
-| Vector baseline it beats | `vector_fulltext` — 0.367 (+32%) |
-| Same traversal with node quotes | `typed_graph` — 0.183 |
-| Calibrated criteria | coverage **ties**, synthesis **loses** |
-| Corpus | 353 papers, 270 extracted, 10,993 chunks |
-| Graph | 26,879 nodes, 11,975 edges |
-| Tests | 168 passing; ruff + mypy clean |
-
-The result is *not* a clean win. It is a win on citation grounding and a tie-or-loss on the
-two judge criteria that survived calibration, at n=10 queries.
+Plain-language companion: [iteration-2-report-plain.md](iteration-2-report-plain.md).
+Running working notes: [iteration-2-notes.md](iteration-2-notes.md).
 
 ---
 
-## 2. The two typed-graph experiments
+## 1. Result
 
-Both use the **same graph, same seeds, same 2-hop traversal, same synthesis prompt**. The
-only difference is what text reaches the synthesizer. Running them as a pair is what turned
-an unexplained failure into a diagnosis.
+Typed-graph retrieval over a 95%-precision extracted graph does not improve required-paper
+recall over a vector baseline, nor over a citation graph built from free Semantic Scholar
+metadata. Both alternative explanations for that outcome — poor extraction, or graph
+retrieval being unsuited to this corpus — are closed off by ablation rather than argued
+away.
 
-### 2A. `typed_graph` — node quotes as evidence
-
-Embed the query, match against **node names**, walk typed edges two hops, and hand the
-synthesizer each reached node's `evidence` quote:
-
-```
-[P3] Method: Layerwise VQE training via addresses
-     "layerwise training reduces the variance of the gradient at shallow depth"
-```
-
-The intent was to make the evidence unit an *extracted assertion* rather than a passage —
-the graph's native currency. One-sentence quotes, ~9,200 characters per query.
-
-### 2B. `typed_graph_chunks` — the graph as a router
-
-Identical traversal. But instead of quotes, take the **set of papers** the traversal
-reached and pull chunks from those papers, ranked by query similarity:
-
-```
-[P3] (method) Training the ansatz layerwise rather than end-to-end changes the
-     gradient variance profile. We observe ... [~1,800 chars of connected prose]
-```
-
-The graph selects *which papers*; chunks supply *the text*. This puts the graph arm on the
-same evidence unit as the vector arm, so the comparison becomes traversal-vs-similarity as
-a **paper selector**, with formatting held constant.
-
-Routing is done at **paper** granularity rather than node→chunk. Mapping a node's quote
-back to its source chunk by substring succeeds for only **57%** of nodes — chunking
-normalises whitespace and some quotes straddle chunk boundaries — and building the
-experiment on a 57%-reliable mapping would have introduced a second failure mode into a
-test designed to isolate one.
-
----
-
-## 3. Results — four arms, same gold set
-
-| metric | abstract | fulltext | **tg_quotes** | **tg_routed** |
-|---|---|---|---|---|
-| `must_cite_recall` | 0.367 | 0.367 | 0.183 | **0.483** |
-| `citation_precision` | 0.233 | 0.210 | 0.175 | **0.445** |
-| `key_claim_source_recall` | 0.417 | 0.317 | 0.183 | **0.533** |
-| `refutation_surfaced` | 0.000 | 0.333 | 0.333 | **0.667** |
-| judge `coverage` *(calibrated)* | 1.80 | **2.90** | 2.00 | **2.90** |
-| judge `synthesis` *(calibrated)* | 2.20 | **3.10** | 2.30 | 2.70 |
-| judge `attribution` *(untrusted)* | 2.70 | 2.80 | 2.50 | 3.10 |
-| answer chars | 1,746 | 2,382 | 1,714 | 2,043 |
-| papers cited | 3.2 | 3.4 | 3.0 | 3.2 |
-| cost / 10 queries | $0.08 | $0.50 | **$0.07** | $0.30 |
-
-### The improvement, isolated
-
-Changing only the evidence unit, with traversal held fixed:
-
-| metric | quotes | chunks | change |
+| arm | `must_cite_recall` | `citation_precision` | `key_claim_source_recall` |
 |---|---|---|---|
-| `must_cite_recall` | 0.183 | 0.483 | **×2.6** |
-| `citation_precision` | 0.175 | 0.445 | **×2.5** |
-| `key_claim_source_recall` | 0.183 | 0.533 | **×2.9** |
-| `refutation_surfaced` | 0.333 | 0.667 | **×2.0** |
-| judge `coverage` | 2.00 | 2.90 | +0.90 |
-| judge `synthesis` | 2.30 | 2.70 | +0.40 |
+| `vector_fulltext` | **0.456** | 0.221 | **0.362** |
+| `typed_graph_chunks` | 0.377 | **0.235** | 0.356 |
+| `vector_abstract` | 0.324 | 0.168 | 0.328 |
+| `typed_graph` | 0.299 | 0.195 | 0.333 |
 
-Every metric roughly tripled. The graph did not get better at finding papers — it selected
-the *same* papers in both runs. The synthesizer simply could not build a citable answer
-from disconnected one-sentence fragments.
+*n = 34 gold queries, `top_k = 60`, graph with both entity-resolution tiers applied.*
 
-### Conversion, which is what the first run actually measured
+Secondary findings, each from a dedicated measurement rather than inference:
 
-| arm | retrieval ceiling | cited | conversion |
-|---|---|---|---|
-| `vector_fulltext` | 0.611 | 0.367 | 60% |
-| `typed_graph` (quotes) | 0.556 | 0.183 | **33%** |
-| `typed_graph_chunks` | 0.556 | 0.483 | **87%** |
-
-Traversal reached slightly fewer required papers than vector search and converted far more
-of them once the evidence was usable.
-
-### Where the graph does not win
-
-Judge `coverage` **ties** full-text at 2.90 and `synthesis` **loses**, 2.70 against 3.10.
-These are the two criteria that passed calibration at n=20, so they carry the most weight.
-The graph arm grounds claims better and covers the same ground; the judge finds full-text's
-answers better integrated.
-
-`refutation_surfaced` 0.667 is the largest relative margin in the table and the one typed
-edges were predicted to win — but it rests on **3 queries**.
+- **Entity resolution contributes nothing measurable.** 944 model-adjudicated merges,
+  ablated directly: two of three deterministic metrics identical (§5.1).
+- **The typed edge layer is worth ~nothing over free citation edges**, which match it to
+  within 0.016 on every metric (§5.2).
+- **Extraction precision is 95.0%**, rising monotonically with confidence (§5.3). The graph
+  content is not the problem.
+- **No arm surfaces contradictions**: 1 of 9 refutation queries (§4.3).
+- **The judge is trustworthy on 3 of 5 criteria** (§6).
 
 ---
 
-## 4. Retrieval configuration, measured not chosen
+## 2. Setup
 
-### `top_k` (vector arm)
+**Corpus.** 354 papers with Tier-A metadata, 271 with parsed full text, 11,020 chunks.
+Graph: 23,301 extracted nodes across 8 types and 11,186 typed edges, plus 2,298 Tier-A
+nodes and 2,446 `cites` edges.
 
-| top_k | ceiling | evidence chars |
+**Arms.** All share the synthesis prompt and citation-handle scheme, so retrieval is the
+only variable under test.
+
+| arm | retrieval | evidence unit |
+|---|---|---|
+| `vector_fulltext` | chunk similarity, `top_k=60` | chunks |
+| `vector_abstract` | chunk similarity over abstracts only | chunks |
+| `typed_graph` | seed on node names, 2-hop typed traversal | node quotes |
+| `typed_graph_chunks` | same traversal, routed to papers | chunks |
+| `citation_graph` | seed on titles, 2-hop `cites` traversal | chunks |
+| `citation_graph_seeded` | seed by vector retrieval, then `cites` | chunks |
+
+**Metrics.** Four deterministic (`must_cite_recall`, `citation_precision`,
+`key_claim_source_recall`, `refutation_surfaced`) and five judge criteria. All
+deterministic metrics return `None` when the gold has nothing to measure; every report
+carries a per-metric `n` (§3.1).
+
+**Gold.** 34 queries — 14 relational, 9 refutation, 6 lookup, 5 open-directions. Grounded
+via BM25 over raw section text, never the SPECTER index: selecting `must_cite` with the
+system's own retriever would drive recall toward 1.0 by construction. The active set was
+reverted to the 10 thesis-derived queries after measurement, for iteration speed; the 34
+are preserved in `eval/gold/queries.full34.jsonl` and remain the basis of every claim here.
+
+---
+
+## 3. Measurement corrections (Gate 0)
+
+Applied before any graph work, on the principle that a win against a misconfigured
+baseline is uninterpretable.
+
+### 3.1 Metric semantics
+
+`refutation_surfaced` returned 1.0 for queries with no `known_refutations`. Seven of ten
+gold queries had none, so the reported aggregate was 0.700 while **every query that
+encoded a contradiction scored 0.00**. All four metrics now return `None` when the gold has
+nothing to measure; a deficient *answer* still scores.
+
+`citation_precision` deliberately retains 1.0 for an uncited answer: an answer citing
+nothing has made no false attribution, which is the correct reading of precision. The
+deficiency is caught by recall instead.
+
+### 3.2 Retrieval configuration
+
+Of 18 required (query, paper) pairs, 7 sat at ranks 40–124 under `top_k=20`.
+
+| `top_k` | recall ceiling | evidence chars/query |
 |---|---|---|
 | 20 | 0.389 | 35,857 |
-| **60** | **0.611** | 111,394 |
+| 60 | 0.611 | 111,394 |
 | 150 | 0.778 | 278,212 |
-| 400 | 0.778 | 740,918 |
 
-Locked at 60. Scoring it moved `must_cite_recall` 0.217 → 0.367 and judge `coverage`
-2.40 → 2.90 — **from changing one integer**. Establishing that before building the graph is
-why the graph cannot claim credit for it.
+Locked at 60. Run first deliberately: had this recovered most of the out-of-range pairs,
+the honest headline would have been *"the baseline was under-retrieving"*, and any typed
+win would have been confounded with a one-line configuration change.
 
-Precision rose alongside recall, contrary to prediction: the model cited more papers
-(2.6 → 3.4) *and* more accurately, so the added chunks were relevant rather than noise.
+### 3.3 Evidence persistence
 
-### Hops (graph arm)
+`traces.jsonl` recorded `evidence_chars` while the full text went to the judge. That
+asymmetry is why `attribution` calibrated at κ=+0.02 (ρ=+0.04, p=0.92) in Iteration 1: the
+judge graded with retrieved context in its prompt, while a human grader could only judge
+whether claims *looked* sourced. Evidence is now persisted; post-fix κ=+0.34 (§6).
 
-| hops | recall | evidence chars |
-|---|---|---|
-| 1 | 0.389 | 4,573 |
-| **2** | **0.556** | 9,184 |
-| 3 | 0.556 | 13,326 |
+### 3.4 Corpus/gold mismatch — diagnosed, no change
 
-The second hop is the entire gain. Neither more seeds (12→24) nor a larger node cap
-(60→300) moved recall at all.
+4 (query, paper) pairs across 3 papers were unreachable at any `top_k`. All rank top-7
+within an 18-paper topic subset, so the cause is dilution rather than a retrieval defect.
+The available fix — restricting the index to the topic under test — was rejected as fitting
+retrieval to the test. Closed as diagnosed.
 
----
-
-## 5. Challenges since Iteration 1
-
-Each is symptom → cause → fix → what it cost.
-
-### 5.1 The graph was never reset between rebuilds
-
-Stage 05 opened the existing Kuzu database and `MERGE`d into it, so every rebuild
-**accumulated**: nodes from an earlier extraction survived even when the current one no
-longer produced them. The graph on disk had been a union of extraction generations rather
-than a picture of one.
-
-It surfaced as a crash, not as wrong data — merging a fresh 25k-node extraction onto a
-64 MB database exhausted Kuzu's buffer pool and stage 05 died after 602s with the vector
-index already rebuilt. **Fix:** clear the database and its `.wal`/`.shadow` sidecars first.
-The graph is derived data, reconstructible from `papers.jsonl` + `extractions.jsonl`.
-
-### 5.2 `Hardware` was unreachable from every section a paper states it in
-
-`NodeType.HARDWARE` was requested in one of eleven section types — `appendix`, 2.9% of
-chunks — and `_REPRO_HINT` fired only there. The corpus produced **12 Hardware nodes across
-8 of 270 papers** while the large majority state a device or qubit count.
-
-Structurally identical to the `Limitation` gap in Iteration 1: a node type the routing
-never asks for is absent with no error anywhere, because extractor, schema and prompt are
-each correct in isolation.
-
-**Fix:** `Hardware` added to `method`, `results` and `availability`; the hint gated on the
-routing table rather than a section name so the two cannot drift apart. **Effect: 12 → 242
-nodes, 8 → 98 papers.** Cost a $6.32 re-extraction.
-
-**And it was still incomplete.** The `repro_gold` audit found a paper scoring **0 of 3** on
-Google / Sycamore / 23 qubits with all three stated plainly — in the **abstract**, which the
-fix had not covered. Now routed there too, queued for the next re-extraction. The lesson
-generalises: routing must follow where papers *actually* state things, not where a reader
-expects the detail to live.
-
-### 5.3 Four metrics credited the system for questions never asked
-
-`refutation_surfaced` returned `1.0` when a query had no `known_refutations`. Seven of ten
-gold queries qualify, so the reported aggregate was **0.700** while all three queries that
-*did* encode a contradiction scored **0.00**.
-
-The same defect sat in `must_cite_recall`, `citation_precision` and
-`key_claim_source_recall`. Fixing one and leaving three would have deferred the next
-inflated aggregate to the next gold set.
-
-**Fix:** `None` when the *gold* has nothing to measure; a score when the *answer* is
-deficient. Reports now print per-metric `n` ("3 of 10") — without it, a mean over three
-queries is indistinguishable from a mean over ten, which is how 0.700 reached the
-Iteration 1 report.
-
-### 5.4 `attribution` could not be calibrated, for an instrument reason
-
-`traces.jsonl` recorded `len(evidence)` while the full text went to the judge two lines
-later. The judge scores attribution with the retrieved context in its prompt; a human
-grading from the answer alone judges whether claims *look* sourced. Calibration then
-measured the asymmetry: **κ=+0.02, ρ=+0.04, p=0.92** — no relationship at all.
-
-**Fix:** persist the evidence. Not yet re-graded, so the criterion remains untrusted.
-
-### 5.5 Growing calibration n reversed a verdict
-
-Scoring `vector_abstract` doubled graded pairs from 10 to 20. Three of five verdicts moved:
-
-| criterion | n=10 | n=20 |
-|---|---|---|
-| `coverage` | +0.68 | **+0.74** trusted |
-| `synthesis` | +0.53 | **+0.69** now trusted |
-| `attribution` | +0.02 | +0.41 still failing |
-| `hedging_accuracy` | +0.67 | **−0.19 LOST** |
-
-At n=10, `hedging_accuracy` would have been published as trusted. Negative kappa is
-systematic disagreement, not noise: abstract-only answers hedge heavily, which the human
-scored as calibrated honesty (4.8 mean) and the judge read as under-confidence (3.7).
-
-### 5.6 The abstract-only floor is not a floor
-
-`vector_abstract` **ties** full-text on `must_cite_recall` (0.367) and beats it on the other
-two citation metrics, while scoring 1.80 against 2.90 on coverage. One abstract per paper
-means citing an abstract *is* citing the paper, so citation metrics reward paper
-identification rather than having read anything.
-
-**Consequence:** `must_cite_recall` cannot headline a system comparison. `coverage` and
-`synthesis` are the criteria that both separate systems and survive calibration.
-
-### 5.7 I shipped an over-merge in entity resolution
-
-`normalize()` deleted every parenthetical, on the theory that they are acronym glosses.
-Applied to the corpus it merged
-
-    "AlphaQubit 2 (RT) complexity"  with  "AlphaQubit 2 (full) complexity"
-    "Eq. (F11) ... subgraph (c)"    with  "Eq. (F10) ... subgraph (b)"
-
-where the parenthesis carried the only distinguishing content — exactly the failure the
-module exists to prevent. It shipped because the sample I inspected happened to contain one
-legitimate merge (an OCR ligature, `spoofing`/`spooﬁng`) beside two wrong ones.
-
-**Fix:** flatten parentheses like any other punctuation. **Merges dropped 369 (1.50%) → 50
-(0.20%): about 86% of what the first version merged was wrong.**
-
-### 5.8 A `libomp` segfault, already documented, hit again
-
-Building a faiss index after loading torch segfaults — three `libomp.dylib` copies in the
-environment. Iteration 1 diagnosed this and fixed it in `FaissVectorStore`; the new
-candidate-pair search reintroduced it. **Fix:** pin faiss to one thread immediately before
-searching, as the vector store already did.
-
-### 5.9 Serial adjudication would have taken an hour and lost everything
-
-3,487 pairs at ~1s each, with the cache written only at the end — the first run timed out
-and discarded every verdict already paid for. **Fix:** thread pool plus checkpointing every
-200 verdicts, the same shape stage 04 already used.
+*(A first attempt at this diagnosis compared paper-rank against chunk-rank, different
+units, and was redone with a non-circular topic subset.)*
 
 ---
 
-## 6. Assumptions the plan made, and what measurement said
+## 4. Retrieval results
 
-| assumption | outcome |
+### 4.1 Sample size
+
+The arm ordering changed between n=10 and n=34.
+
+| arm | n=10 | n=34 |
+|---|---|---|
+| `vector_fulltext` | 0.417 | 0.456 |
+| `typed_graph_chunks` | 0.383 | 0.377 |
+| `vector_abstract` | 0.400 | 0.324 |
+| `typed_graph` | 0.333 | 0.299 |
+
+`vector_abstract` moved from second to third. Every n=10 result in this project should be
+read against a ±0.10 noise floor.
+
+### 4.2 By query type (n=34)
+
+| type | n | `vector_fulltext` | `typed_graph_chunks` | `typed_graph` |
+|---|---|---|---|---|
+| lookup | 6 | 0.500 | **0.667** | 0.500 |
+| open-directions | 5 | **0.500** | 0.400 | 0.100 |
+| refutation | 9 | **0.556** | 0.444 | 0.333 |
+| relational | 14 | **0.357** | 0.202 | 0.262 |
+
+The typed graph is **last on relational queries** — the 14-query majority and precisely the
+type the design targets. `gold_schema.py` states the intent explicitly: *"over-sample
+relational/refutation: that is where the typed graph earns its complexity."* It leads only
+on `lookup`, the type nobody claimed graphs would help with.
+
+### 4.3 Contradiction surfacing
+
+| arm | queries surfacing the contradiction |
 |---|---|
-| ER merges ~1.6% of entity nodes | deterministic **0.20%**, hybrid **3.69%** |
-| Duplicates are a naming-verbosity problem | **no** — median name 4.0 → 3.0 words moved merges 8 → 7 |
-| Semantic merging = threshold over embedding similarity | **no viable threshold exists** |
-| 2.6 gates 2.9 — typed retrieval over duplicates is unmeasurable | **false** — duplicates were not the limiting factor; evidence formatting was |
-| Claim-shaped seeds crowd out concept nodes | **backwards** — removing `Claim` dropped recall 0.556 → 0.333 |
-| 5 required papers are undiscoverable | **4 pairs across 3 papers**; only one fails universally |
+| `vector_fulltext` | 1 / 9 |
+| `vector_abstract` | 1 / 9 |
+| `typed_graph` | 1 / 9 |
+| `typed_graph_chunks` | 2 / 9 |
 
-### Why an embedding threshold cannot work here
+At n=3 (Iteration 1 gold) this read 0.667. The cause is structural: the graph holds 8
+`refutes` and 25 `undercuts` edges, because per-paper extraction can only observe
+contradictions a paper states about itself. Addressed — with a caveat — in §8.2.
 
-Nearest-neighbour cosine over 6,193 distinct `Method` nodes never falls below **0.70** — no
-negative class exists. And similarity does not rank true pairs above false ones:
+### 4.4 Domain split
 
-    0.993  "Gradient-free classical optimization for QAOA parameters"
-        vs "Gradient-based classical optimization for QAOA parameters"   <- opposite
-    0.976  "Quantum Multi-value Decision Diagram (QMDD)"
-        vs "Quantum Multi-valued Decision Diagram (QMDD)"                <- same
+| | thesis-domain (10) | out-of-domain (24) |
+|---|---|---|
+| `vector_fulltext` | 0.367 | **0.493** |
+| `typed_graph_chunks` | 0.383 | 0.375 |
 
-**The hybrid that works:** embeddings reduce ~19M pairs to 3,487 candidates; a model reads
-each pair. **909 ids merged (3.69%)** for **$0.30**, 18× the deterministic yield. The model
-rejected **67%** of what embeddings proposed, including pairs at 0.999 cosine differing by
-an algorithm number, a qubit count, or first- versus second-order.
-
----
-
-## 7. What Iteration 2 does not claim
-
-- **n=10 queries.** A 0.483-vs-0.367 gap on ten items is consistent with the thesis, not
-  established by it. `refutation_surfaced` rests on **3**.
-- **No per-query-type breakdown is reported.** Cells would hold 1–4 queries.
-- **No citation-graph ablation arm** (2.11). The three-arm comparison is
-  abstract / full-text / typed-graph; untyped-edge retrieval was not built.
-- **Nothing about `attribution`, `hedging_accuracy` or `refutation_handling`** — those judge
-  scores exist but did not clear calibration.
-- **The queued re-extraction has not run.** `Hardware`-in-abstract routing and the canonical
-  naming prompt are committed but unrealised; every extraction figure here predates them.
-- **`repro_gold` is 25 of 140 fields (18%).** Its 76% accuracy is 25% on fields a paper
-  actually states — 17 of 19 correct answers are correct silences.
+Vector retrieval's advantage comes entirely from out-of-domain queries; it falls to parity
+where the corpus is dense in the query's topic, while the typed arm is flat and leads
+in-domain on `citation_precision` (0.300 vs 0.233). Reported as a pre-specified subgroup,
+not as the primary result.
 
 ---
 
-## 8. Carried into Iteration 3
+## 5. Ablations
 
-1. **Re-grade `attribution`** against persisted evidence — 20 judgements, decides whether a
-   third criterion becomes trustworthy.
-2. **Re-extraction** (~$6.30) to realise the queued prompt changes, then the 2.16 precision
-   audit and the remaining `repro_gold` fields.
-3. **Grow the gold set.** n=10 cannot separate systems, and this iteration's headline
-   depends on exactly that separation.
-4. **Citation-graph ablation** (2.11), the missing third arm.
-5. **Cross-paper contradiction** (2.17) — `refutes`/`undercuts` remain 8 and 48.
-6. **`Chunk.id` uniqueness** (2.18).
+### 5.1 Entity resolution
+
+Rebuilt with the semantic tier disabled (29 merged ids vs 973), everything else identical,
+`typed_graph_chunks` re-run.
+
+| metric | 973 merges | 29 merges |
+|---|---|---|
+| `must_cite_recall` | 0.383 | 0.383 |
+| `key_claim_source_recall` | 0.433 | 0.433 |
+| `citation_precision` | 0.333 | 0.350 |
+
+Two of three identical. 944 merges — 3,859 pairs adjudicated at 27.9% acceptance — produce
+no measurable retrieval effect. This also reassigns a −0.100 drop previously attributed to
+the merges: it belonged to the re-extraction.
+
+The planning assumption that *"typed retrieval over a graph with duplicate Method nodes is
+unmeasurable"* is not supported by this measurement.
+
+### 5.2 Citation-graph ablation
+
+`cites` edges from S2 metadata; seeding shape, hop budget, chunk routing and synthesis
+prompt held constant.
+
+| arm | `must_cite_recall` | `citation_precision` | `key_claim_source_recall` |
+|---|---|---|---|
+| `typed_graph_chunks` | 0.383 | 0.300 | 0.433 |
+| `citation_graph` | 0.367 | 0.287 | 0.417 |
+| `vector_fulltext` | 0.367 | 0.233 | 0.317 |
+| `citation_graph_seeded` | 0.317 | 0.193 | 0.267 |
+
+*(thesis-10 subset, current graph)*
+
+Free citation edges match the extracted typed layer within 0.016 on every metric. The
+`_seeded` variant — vector retrieval followed by citation expansion — scores **below**
+vector retrieval alone: expansion dilutes a good seed set rather than enriching it.
+
+**Design note on the cap.** `max_nodes` was set to 30, not the typed arm's 150. In the
+typed graph a node is an entity and 150 entities route to ~10 papers (measured mean 10.1,
+max 28); here a node *is* a paper, so 150 would have meant 55 papers with chunks and 201k
+chars of evidence against the typed arm's 61k. Copying the number would have let this arm
+win on evidence volume rather than structure. At 30 both sit alongside the vector baseline
+(95k and 116k chars against 111k).
+
+### 5.3 Extraction precision audit
+
+60 nodes, 20 per confidence band, a third of each band reserved for reproducibility types.
+Each labelled against its own evidence quote — never against a second system's output,
+which would measure agreement rather than correctness.
+
+| band | precision |
+|---|---|
+| 0.65–0.75 | 85.0% (17/20) |
+| 0.75–0.85 | 100.0% (20/20) |
+| 0.85–1.01 | 100.0% (20/20) |
+| **overall** | **95.0% (57/60)** |
+
+By type: `Claim`, `Dataset`, `Hardware`, `Software`, `Problem` all 100%; `Method` 92.3%,
+`Limitation` 90.9%, `ReproducibilityArtifact` 75.0% (n=4).
+
+Precision rises with confidence, so the score is informative and the 0.65 gate does work at
+the bottom band. Raising it to 0.75 would yield 100% precision at some recall cost.
+
+**Scope.** Sub-gate nodes are absent from `extractions.jsonl`, so this measures what
+survived — *"of what we kept, 95% is right"* — never *"we wrongly discarded Y% of good
+nodes"*. Answering the second needs a re-extraction with the gate lowered.
+
+Precision only, deliberately: recall would require *"what should this paper have
+produced"*, a granularity judgement rather than a fact, and matching gold names against
+extracted names would report entity-resolution failure as extraction failure.
+
+---
+
+## 6. Judge calibration
+
+34 hand-graded answers on `vector_fulltext`, joined to judge scores by
+`scripts/calibrate_judge.py` — the first time this join has existed in code; Iteration 1's
+figures were computed by hand.
+
+| criterion | QWK | ρ | p | n | trusted |
+|---|---|---|---|---|---|
+| `coverage` | **+0.72** | +0.77 | <0.001 | 34 | yes |
+| `synthesis` | **+0.68** | +0.72 | <0.001 | 34 | yes |
+| `refutation_handling` | **+0.65** | +0.73 | 0.026 | 9 | yes |
+| `hedging_accuracy` | +0.55 | +0.41 | 0.017 | 34 | no |
+| `attribution` | +0.34 | +0.39 | 0.021 | 34 | no |
+
+Length bias on `synthesis`: +0.02 per 100 chars, p=0.036 — newly detectable (p=0.733 in
+Iteration 1) and worth ~1 point across a 5,000-character answer.
+
+Against Iteration 1: `synthesis` 0.53 → 0.68 and `refutation_handling` unmeasured (n=3) →
+0.65 become trustworthy; `hedging_accuracy` 0.67 → 0.55 loses trust, which n=10 always
+risked.
+
+**`attribution` fails by range restriction, not leniency.** Both means sit near 3.0.
+
+| score | 1 | 2 | 3 | 4 | 5 | sd |
+|---|---|---|---|---|---|---|
+| human | 11 | 3 | 10 | 2 | 8 | 1.53 |
+| judge | 1 | 10 | 11 | 12 | 0 | 0.87 |
+
+The judge never returns 5 and almost never 1. Disagreements are symmetric — it rates the
+worst answers 4 and the best 2. This requires a rubric with anchored examples at both ends,
+not rescaling.
+
+**Consequence for reporting:** the `coverage` and `synthesis` columns are usable across
+arms; `attribution` and `hedging_accuracy` must be labelled untrusted or dropped.
+
+---
+
+## 7. Reproducibility layer
+
+### 7.1 Schema
+
+The prior schema could express one thing where three are needed. A null meant both *"the
+paper is silent"* and *"we have not looked"*, so a system inventing a qubit count could not
+be distinguished from one correctly reporting nothing. Now three states (value /
+`not_reported` / `None`) and six outcomes (`correct`, `wrong`, `missed`, `hallucinated`,
+`correct_absence`, `skipped`).
+
+The field set was made quantum-shaped by measurement: `qubit_count` appears in 151 of 242
+`Hardware` nodes, `gpu_type` in 107. The original schema led with GPU fields.
+
+### 7.2 Result
+
+21 papers, 138 scoreable fields (from 25).
+
+```
+accuracy 73.2%   —  of which 67.4% is correct silence
+```
+
+| field | correct | absence | wrong | missed | hallucinated |
+|---|---|---|---|---|---|
+| `quantum_vendor` | 2 | 12 | 1 | 1 | 4 |
+| `device_name` | 1 | 10 | 4 | 1 | 3 |
+| `qubit_count` | 3 | 8 | 1 | 6 | 1 |
+| `gpu_type` | 1 | 17 | 0 | 2 | 0 |
+| `gpu_count` | 1 | 17 | 0 | 2 | 0 |
+| `code_url` | 0 | 15 | 0 | 5 | 0 |
+| `dataset_access` | 0 | 14 | 0 | 6 | 0 |
+
+**Recall on stated facts: 17%. Hallucination rate: 6%.** The aggregate is uninformative on
+this corpus — an empty system scores 67.4% — so the `correct` / `correct_absence` split is
+the number to read, and `summarize()` prints both so the flattering figure cannot travel
+alone.
+
+`code_url` and `dataset_access` are 0-for-15 and 0-for-14, missing five literal GitHub URLs.
+`ReproducibilityArtifact` fires 33 times corpus-wide but not on those papers: a
+prompt-routing gap rather than a grounding failure, and the largest available improvement.
+
+Hallucinations concentrate on simulation papers that name a vendor — `e17e52d7` reports
+`quantum_vendor: Google` and `device_name: NVIDIA DGX-A100` for work that *simulates*
+Sycamore circuits on GPUs with no quantum hardware involved.
+
+---
+
+## 8. Late items
+
+### 8.1 `Chunk.id` uniqueness — fixed
+
+Ids were `{paper_id}::{section_type}::{start}-{end}`, but `char_start`/`char_end` are
+offsets into their own section and restart at 0, while papers routinely carry several
+sections typed `other`. 43 ids covered 46 excess chunks, always different text within one
+paper. A colliding id means two spans share an identity and an id-keyed store serves
+whichever was written last. Fixed by including the section index; requires a re-chunk and
+re-index to take effect on stored data.
+
+### 8.2 Cross-paper contradictions — run, not yet trusted
+
+16,972 cross-paper claim pairs above cosine 0.90, adjudicated three ways, $1.61.
+
+```
+3,072 edges accepted (18.1%)   refutes 163   undercuts 2,909   neither 13,900
+spanning 249 of 271 papers
+```
+
+That would take the contradiction layer from 33 edges to 3,072. **The edges have not been
+applied to the graph.** A random sample of 4 `refutes` and 4 `undercuts` found roughly half
+the `refutes` unconvincing, and the false positives are exactly the failure mode the prompt
+warns against:
+
+- *"Number of function evaluations exceeds effective search space"* vs *"SBPLX function
+  evaluations limited to 42,000"* — different quantities from different experimental setups
+- *"ADAPT-VQE determines a quasi-optimal ansatz"* vs *"The work does not use adaptive ansatz
+  schemes"* — B states a different paper's own design choice, not a conflict with A
+
+An 8-item sample cannot estimate a rate, but it is enough to withhold the number as a
+result. A labelled audit on the pattern of §5.3 is required before these edges enter the
+graph or the acceptance figure is quoted.
+
+**Design note.** In entity merging a high similarity floor acts as a *precision* filter —
+two names for one method are near-identical strings. Here the relation inverts:
+contradictory claims are similar *by construction*, since they concern the same subject and
+differ only in what they assert. Similarity is therefore purely a recall filter and carries
+no information about whether a conflict exists; the model performs the entire
+discriminative step. That is also why over-acceptance is the expected failure mode, and why
+everything fails closed to `neither` — a false `refutes` edge would route a refutation
+query to a disagreement no paper asserts.
+
+---
+
+## 9. Threats to validity
+
+**Sample size.** The primary result is n=34; §4.1 demonstrates the ±0.10 noise floor at
+n=10 by an ordering that changed. The ablations in §5.1 and §5.2 were run at n=10 and their
+gaps are not individually significant — they are reported as directional, and their weight
+comes from the size of the effect being *absent* rather than from a significant difference.
+
+**Single grader.** Calibration rests on one annotator with no inter-annotator agreement
+measure, so `coverage`/`synthesis` trustworthiness is trustworthiness *relative to this
+grader*.
+
+**Untrusted judge criteria.** Two of five fail calibration and are excluded from every
+claim above.
+
+**Corpus composition.** 96 of 138 repro gold fields are `not_reported`, and the corpus is
+predominantly theory and simulation, so §7 generalises to similar corpora only.
+
+**A judgement call in §5.2.** The citation arm's `max_nodes` (30 vs 150) was chosen, not
+measured. The reasoning is documented and the alternative would have been worse, but the
+arm's standing depends on that choice.
+
+**Gold authored partly by the same model family** that performs extraction. Mitigated by
+BM25-based grounding, and by never showing the authoring tools the system's own output —
+but not eliminated.
+
+**§8.2 unaudited**, and excluded from §1 accordingly.
+
+---
+
+## 10. Engineering record
+
+Defects found and resolved, with the measurement that surfaced each.
+
+| defect | surfaced by | resolution |
+|---|---|---|
+| Graph accumulated across rebuilds — a union of two extraction generations | Kuzu buffer-pool exhaustion | delete DB + `.wal`/`.shadow` before every build |
+| `normalize()` stripped all parentheticals; 86% of merges wrong | re-inspection after shipping on a sample of 2 | flatten punctuation, keep content; 369 → 50 merges |
+| 909 adjudicated merges never applied to the graph | reading stage 05 while wiring the audit | `_semantic_merges()` in the build, keyed by name |
+| `libomp` triple-copy segfault — an Iteration-1 defect reintroduced | exit 139 during candidate generation | `faiss.omp_set_num_threads(1)` immediately before search |
+| Serial adjudication lost all work on timeout | 3,487-pair run | ThreadPoolExecutor + checkpoint every 200, fail closed |
+| Kuzu binder error on `ORDER BY r.confidence` with `RETURN DISTINCT` | traversal query | order on the returned alias |
+| Node-quote evidence scored 0.183 | splitting recall into reach vs conversion | route to chunks at paper granularity; 0.183 → 0.483 |
+| Token-containment matching inert in the repro scorer | `A100` vs `NVIDIA A100-SXM-80GB` scored wrong | relax `correct`/`wrong` only; absence logic unchanged |
+| A corpus entry was an OSTI landing page, not a paper | authoring repro gold | left unauthored; journal version ingested under its own id |
+| `Chunk.id` collisions | uniqueness check | section index in the id |
+
+The 0.183 → 0.483 entry is the most instructive. The first scored typed-graph run looked
+like a total failure until the metric was decomposed: retrieval was reaching 0.556 of
+required pairs against the vector arm's 0.611, but converting only 33% into citations
+against 60%. The traversal was working; one-sentence quotes stripped of surrounding
+argument were too thin to write from. Routing to chunks raised conversion to 87%.
+
+**Predictions that were wrong**, recorded because each was cheap to test and testing changed
+the conclusion:
+
+1. Semantic merging would help the typed arm — it does nothing (§5.1)
+2. Extraction precision would be 50–60% — it is 95% (§5.3)
+3. `Claim`-shaped seeds would crowd out concept nodes — removing them halved recall
+4. Near-duplicates would dominate contradiction candidates — 13 of 16,972
+
+---
+
+## 11. Carried forward
+
+- **Audit §8.2 before applying**, on the pattern of §5.3; then re-measure whether §4.3 moves
+  off 1-of-9
+- **Re-chunk and re-index** so §8.1 takes effect on stored data
+- **`attribution` rubric with anchored 1 and 5 examples** — the range restriction in §6
+- **`ReproducibilityArtifact` routing** — the 0-for-15 in §7.2 is a prompt gap, not a
+  grounding one
+- **Inter-annotator agreement** — the single-grader threat in §9
+- **n ≥ 34 as the standing default** for any claimed result; the 10-query set is a
+  development set only
