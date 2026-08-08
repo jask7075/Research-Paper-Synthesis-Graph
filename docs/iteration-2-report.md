@@ -45,6 +45,21 @@ Secondary findings, each from a dedicated measurement rather than inference:
 Graph: 23,301 extracted nodes across 8 types and 11,186 typed edges, plus 2,298 Tier-A
 nodes and 2,446 `cites` edges.
 
+**Inspecting the graph.** Every figure in this report is reproducible from the built store
+(`data/processed/rpsg.kuzu`, a single Kuzu file) without re-running the pipeline:
+
+```bash
+python scripts/show_graph.py --stats                    # the counts in this section
+python scripts/show_graph.py "<a gold query>"           # the neighbourhood a traversal reaches
+python scripts/show_graph.py --cypher "<statement>"     # anything else
+```
+
+`show_graph.py` takes seeding, hop count and the node cap from `TypedGraphSystem` rather
+than re-choosing them, so what it shows is what the arm under test actually saw. It prints
+each node with the hop it was reached at and the edge type that reached it, which is how
+the traversal analysis in §4.5 was produced. Kuzu permits one process at a time, readers
+included, so nothing else may hold the database while this runs.
+
 **Arms.** All share the synthesis prompt and citation-handle scheme, so retrieval is the
 only variable under test.
 
@@ -173,6 +188,56 @@ Vector retrieval's advantage comes entirely from out-of-domain queries; it falls
 where the corpus is dense in the query's topic, while the typed arm is flat and leads
 in-domain on `citation_precision` (0.300 vs 0.233). Reported as a pre-specified subgroup,
 not as the primary result.
+
+### 4.5 What the traversal actually reaches
+
+§4.2 establishes that the typed graph is worst on relational queries. This section asks
+what the traversal *reaches* on those queries, which is a different question from how it
+scores and has a different answer. Measured over all 34 gold queries: 966 nodes reached,
+with seeding, hops and node cap taken from `TypedGraphSystem`.
+
+| node type | share reached | share of graph |
+|---|---|---|
+| `Problem` | 28.0% | 14.4% |
+| `Method` | 28.0% | 20.7% |
+| `Claim` | 27.7% | 43.2% |
+| `Limitation` | **9.9%** | **18.5%** |
+
+| edge traversed | share |
+|---|---|
+| *(seed)* | 42.2% |
+| `addresses` | **35.7%** |
+| `builds_on` | 12.1% |
+| `uses` | 4.1% |
+| `evaluated_on` | 3.3% |
+| `refutes` | 0.1% |
+| `undercuts` | **0.0%** |
+
+**One edge type does almost all the work.** `addresses` runs Method↔Problem, so the walk
+oscillates between methods and the problems they solve. That is why `Problem` is reached at
+twice its share of the graph: the traversal is largely a two-node-type loop.
+
+**The half of a relational question that asks "and what is wrong with each" has no route to
+travel on.** `Limitation` is reached at roughly half its graph share, and `undercuts` — the
+edge that leads from a method to what weakens it — was traversed **zero times across 34
+queries**. `refutes` fired once. There are 33 such edges in a graph of 11,186 (§8.2).
+
+Relational queries in this gold set are almost uniformly of the form *"X, and what does each
+cost / what limits each"*. The traversal reliably retrieves X and structurally cannot
+retrieve the second half.
+
+**This is a candidate mechanism for the 0.202 in §4.2, and it is not the one the ablations
+tested.** §5.1 ruled out duplicate nodes and §5.2 ruled out edge *quality* — free citation
+edges do as well as extracted ones. Neither tested edge *coverage*, which is what this
+measures. It also widens §8.2: the missing contradiction edges are not merely why 1 of 9
+refutation queries succeeds, they are plausibly why the majority query type scores worst.
+
+**Status: mechanism consistent with the evidence, not a demonstrated cause.** Confirming it
+requires a contradiction layer that survives audit — the §8.2 attempt did not — followed by
+re-measurement. Until then it is a hypothesis with a measurement behind it, and it is the
+first explanation for §4.2 that has not already been eliminated.
+
+Reproducible with `scripts/show_graph.py`; see §2.
 
 ---
 

@@ -210,6 +210,53 @@ python scripts/inspect_pdf.py data/raw/pdfs/<paper_id>.pdf
 python scripts/report_state.py --format html              # printable state report
 ```
 
+## Looking at the graph
+
+The graph lives in a single Kuzu file, `data/processed/rpsg.kuzu`. It is derived data —
+fully reconstructible from `papers.jsonl` + `extractions.jsonl` — so it is deleted and
+rebuilt from empty on every `05_build_stores.py` run rather than merged into.
+
+```bash
+python scripts/show_graph.py --stats                      # node/edge counts, hubs
+python scripts/show_graph.py "what mitigates barren plateaus?"   # what a query reaches
+python scripts/show_graph.py "..." --mermaid              # diagram that renders in markdown
+python scripts/show_graph.py --node method:qaoa           # start from a known node
+python scripts/show_graph.py --cypher "MATCH (e:Entity) WHERE e.type = 'Hardware' \
+  RETURN e.name LIMIT 10"
+```
+
+Drawing all 21k nodes produces a hairball. The view worth having is the neighbourhood a
+*query* reaches, because that is exactly what `TypedGraphSystem` walks and what its answer
+is built from. Seeding, hop count and the node cap are taken from that class rather than
+re-chosen, so the picture is of the system under test and not of a different one. Each node
+prints with the hop it was reached at and the edge type that got there — which is what
+makes it a diagnostic: a traversal landing in the right region and still scoring badly is a
+synthesis problem, one that wanders is a seeding problem, and the two need opposite fixes.
+
+**Kuzu allows one process at a time, readers included.** If a build or an eval run is going
+in another terminal, opening the database fails. The store translates that error, because
+the raw message (`IO exception: Could not set lock on file`) names the symptom rather than
+the cause, and the instinctive response to an IO error on a database file is to delete it.
+Wait instead; the lock clears on exit. To see what holds it: `lsof data/processed/rpsg.kuzu`.
+
+### Kuzu Explorer (optional)
+
+A browser UI for clicking around and running Cypher. It needs Docker, an image tag matching
+the storage format your database was written with, and it takes the same exclusive lock —
+so `--cypher` above is usually the faster route.
+
+```bash
+docker run -p 8000:8000 \
+  -v "$(pwd)/data/processed:/database" \
+  -e KUZU_FILE=rpsg.kuzu \
+  -e MODE=READ_ONLY \
+  kuzudb/explorer:0.11.3          # pin to your kuzu version, not `latest`
+```
+
+Then open `localhost:8000`. Mount the *parent directory*: the database is a single file, not
+a directory. `READ_ONLY` is deliberate — nothing should be writing to the graph except
+`05_build_stores.py`.
+
 ## Finding: relevance search cannot build a citation-connected corpus; co-citation can
 
 Building a quantum-computing corpus from 12 Semantic Scholar relevance queries produced a

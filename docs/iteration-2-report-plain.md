@@ -394,6 +394,32 @@ each as contradicting, weakening, or neither.
 
 ---
 
+## Looking at the map yourself
+
+Everything above can be reproduced from the built map without re-running anything:
+
+```bash
+python scripts/show_graph.py --stats                  # how many items and links, by kind
+python scripts/show_graph.py "your question here"     # what a question actually reaches
+python scripts/show_graph.py "..." --mermaid          # a picture
+```
+
+Drawing all 21,000 items gives you a hairball. The useful view is what a *question* reaches,
+because that is exactly what the map-based method walks and writes its answer from.
+
+Doing this turned up something the scores alone did not show. Across all 34 questions, the
+walk reaches `Limitation` items only half as often as they occur in the map — and the link
+type that leads from a method to what is wrong with it was followed **zero times**. There
+are only 33 such links in the whole map.
+
+Relational questions are nearly always *"X, and what is wrong with each"*. The walk reliably
+finds X and has no path at all to the second half. That is the best current explanation for
+why relational questions score worst, and it is not one the two earlier experiments ruled
+out: they tested whether the links were *good*, not whether the right *kinds* of link
+existed.
+
+---
+
 ## What the iteration concluded
 
 **Ordinary passage search wins.** Across 34 questions: 0.456 for ordinary search, 0.377 for
