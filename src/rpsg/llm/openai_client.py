@@ -35,7 +35,10 @@ class OpenAIChatClient(ChatClient):
         self._client = OpenAI(api_key=settings.openai_api_key)
         self.model = model
 
-    def _complete(self, system: str, user: str, max_tokens: int, response_format=None):
+    def _complete(
+        self, system: str, user: str, max_tokens: int, response_format=None,
+        temperature: float | None = None,
+    ):
         kwargs: dict = {
             "model": self.model,
             "messages": [
@@ -48,6 +51,10 @@ class OpenAIChatClient(ChatClient):
         }
         if response_format is not None:
             kwargs["response_format"] = response_format
+        # Omitted entirely when None, so the provider default still applies and every
+        # existing call site behaves exactly as it did before this parameter existed.
+        if temperature is not None:
+            kwargs["temperature"] = temperature
         resp = self._client.chat.completions.create(**kwargs)
 
         # Recorded before any error branch below: a refused or truncated response is
@@ -79,6 +86,7 @@ class OpenAIChatClient(ChatClient):
         schema: dict,
         schema_name: str = "output",
         max_tokens: int = 4096,
+        temperature: float | None = None,
     ) -> dict:
         text = self._complete(
             system,
@@ -88,8 +96,11 @@ class OpenAIChatClient(ChatClient):
                 "type": "json_schema",
                 "json_schema": {"name": schema_name, "schema": schema, "strict": True},
             },
+            temperature=temperature,
         )
         return json.loads(text)
 
-    def text(self, *, system: str, user: str, max_tokens: int = 2048) -> str:
-        return self._complete(system, user, max_tokens)
+    def text(
+        self, *, system: str, user: str, max_tokens: int = 2048, temperature: float | None = None
+    ) -> str:
+        return self._complete(system, user, max_tokens, temperature=temperature)

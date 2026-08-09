@@ -42,6 +42,15 @@ class Models(BaseModel):
     judge_model: str = "gpt-5.4-mini"
     synthesis_model: str = "gpt-5.4-mini"
     local_inference_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
+    #: Sampling temperature for the judge, and for the judge only. `None` restores the
+    #: provider default, which is what Iteration 1 and 2 ran on: nothing set a temperature
+    #: anywhere, so every reported kappa was computed from temperature-1.0 samples. Judging
+    #: the same 34 answers three times with an identical rubric produced per-criterion kappa
+    #: spreads of 0.12-0.25 -- wider than the margin by which §6 certified three criteria.
+    #: A grader that cannot reproduce its own grade cannot certify anything, so this is
+    #: pinned. Extraction and synthesis are deliberately left alone; changing their sampling
+    #: would make Iteration 2's stored runs non-comparable for no measured benefit.
+    judge_temperature: float | None = 0.0
     #: Override provider routing. None = infer from the model id (see rpsg.llm).
     provider: str | None = None
     #: Optional per-model rates, e.g. {"gpt-5.4-nano": {"input_per_mtok": 0.05,

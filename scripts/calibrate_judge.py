@@ -15,6 +15,13 @@ Kappa is the headline rather than correlation because the criteria are ordinal 1
 what matters is agreement on the level, not merely on the ranking. A judge that orders
 answers exactly like the grader but sits a point lower has high rho and mediocre kappa,
 and those two failures want different fixes: rescaling versus a prompt rewrite.
+
+If the run holds `scores.sample*.jsonl` (see `rejudge.py --repeats`), every sample is
+calibrated separately and the spread is reported. A criterion is then certified only if it
+clears the bar on *all* of them. That rule exists because a single sample was enough to
+certify `refutation_handling` at +0.65 in §6 and to put it at +0.43 on a second draw of the
+same rubric over the same answers — one draw cannot tell a trustworthy criterion from a
+lucky one.
 """
 
 from __future__ import annotations
@@ -32,6 +39,42 @@ CRITERIA = ("coverage", "attribution", "hedging_accuracy", "refutation_handling"
 
 def _jsonl(p: Path) -> list[dict]:
     return [json.loads(x) for x in p.read_text().splitlines() if x.strip()]
+
+
+def _report_stability(
+    human: dict[str, dict], sample_files: list[Path], min_kappa: float
+) -> None:
+    """Per-criterion kappa on each judge sample, and the resulting certification.
+
+    `worst` is the verdict, not `median`: certifying on the best or middle draw is what
+    makes a lucky sample look like a trustworthy criterion. A criterion earns trust only by
+    clearing the bar every time it is asked.
+    """
+    samples = [{r["qid"]: r for r in _jsonl(p)} for p in sample_files]
+    print(f"\nStability across {len(samples)} judge samples (kappa per sample):")
+    for c in CRITERIA:
+        kappas = []
+        for s in samples:
+            pairs = [
+                (h, s[q][f"judge_{c}"])
+                for q, g in human.items()
+                if (h := g.get(c)) is not None and q in s and s[q].get(f"judge_{c}") is not None
+            ]
+            if len(pairs) < 2:
+                continue
+            kappas.append(
+                calibrate_criterion(
+                    [int(a) for a, _ in pairs], [int(b) for _, b in pairs], c, min_kappa
+                ).quadratic_kappa
+            )
+        if not kappas:
+            continue
+        worst, best = min(kappas), max(kappas)
+        flag = "OK " if worst >= min_kappa else "!! "
+        drew = " ".join(f"{k:+.2f}" for k in kappas)
+        print(f"  {flag}{c:20s} worst={worst:+.2f} best={best:+.2f} "
+              f"spread={best - worst:.2f}   [{drew}]")
+    print("  (a criterion is certified only if its WORST sample clears the bar)")
 
 
 def main() -> None:
@@ -55,6 +98,10 @@ def main() -> None:
     human = {r["qid"]: r["grade"] for r in _jsonl(run / "human_grades.jsonl")}
     scores = {r["qid"]: r for r in _jsonl(run / "scores.jsonl")}
     answers = {r["qid"]: r["text"] for r in _jsonl(run / "answers.jsonl")}
+
+    sample_files = sorted(run.glob("scores.sample*.jsonl"))
+    if len(sample_files) > 1:
+        _report_stability(human, sample_files, min_kappa)
 
     per_criterion, biases = [], []
     for c in CRITERIA:

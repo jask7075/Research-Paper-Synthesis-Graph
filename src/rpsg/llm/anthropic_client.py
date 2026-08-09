@@ -47,21 +47,28 @@ class AnthropicChatClient(ChatClient):
         schema: dict,
         schema_name: str = "output",  # noqa: ARG002 - Anthropic infers the name
         max_tokens: int = 4096,
+        temperature: float | None = None,
     ) -> dict:
+        extra: dict = {} if temperature is None else {"temperature": temperature}
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
             output_config={"format": {"type": "json_schema", "schema": schema}},
+            **extra,
         )
         return json.loads(self._first_text(resp) or "{}")
 
-    def text(self, *, system: str, user: str, max_tokens: int = 2048) -> str:
+    def text(
+        self, *, system: str, user: str, max_tokens: int = 2048, temperature: float | None = None
+    ) -> str:
+        extra: dict = {} if temperature is None else {"temperature": temperature}
         resp = self._client.messages.create(
             model=self.model,
             max_tokens=max_tokens,
             system=system,
             messages=[{"role": "user", "content": user}],
+            **extra,
         )
         return self._first_text(resp)

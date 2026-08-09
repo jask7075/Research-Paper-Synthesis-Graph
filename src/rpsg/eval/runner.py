@@ -118,7 +118,7 @@ def run_system(
         scores_fh.close()
         violations_fh.close()
 
-    _write_report(system.name, all_scores, run_dir / "report.md", all_violations)
+    write_report(system.name, all_scores, run_dir / "report.md", all_violations)
     return run_dir
 
 
@@ -136,12 +136,18 @@ def _applicable(rows: list[dict], key: str) -> list[float]:
     return [r[key] for r in rows if r.get(key) is not None]
 
 
-def _write_report(
+def write_report(
     system_name: str,
     scores: list[dict],
     path: Path,
     violations: list[Violation] | None = None,
 ) -> None:
+    """Aggregate + by-query-type table for a set of scored rows.
+
+    Public because `scripts/rejudge.py` produces the same rows from stored answers and must
+    render them identically — a re-judged run that reported its means differently would not
+    be comparable to the run it re-scores.
+    """
     if not scores:
         path.write_text(f"# {system_name}\n\nNo scores.\n")
         return
