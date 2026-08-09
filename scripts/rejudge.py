@@ -37,7 +37,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from rpsg.config import get_settings
-from rpsg.eval.gold_schema import GoldRecord, load_gold
+from rpsg.eval.gold_schema import GoldRecord
+from rpsg.eval.gold_schema import resolve_gold as _resolve_gold
 from rpsg.eval.judge import CRITERIA, PROMPT_VERSIONS, Judge
 from rpsg.eval.metrics import Answer, deterministic_scores
 from rpsg.eval.runner import write_report
@@ -54,41 +55,11 @@ def _jsonl(p: Path) -> list[dict]:
 def resolve_gold(
     qids: set[str], gold_dir: Path, explicit: str | None
 ) -> tuple[Path, list[GoldRecord]]:
-    """The gold file covering every qid in the run.
-
-    Auto-selected rather than defaulting to `queries.jsonl`, because the active gold set is
-    the 10-query thesis subset while the calibrated run was scored on the 34. Defaulting
-    would silently re-judge 10 of 34 and report a kappa over a third of the sample.
-    """
-    if explicit:
-        p = Path(explicit)
-        if not p.is_absolute():
-            p = gold_dir / explicit
-        gold = load_gold(str(p))
-        missing = qids - {g.qid for g in gold}
-        if missing:
-            raise SystemExit(
-                f"{p.name} is missing {len(missing)} of the run's qids: {sorted(missing)[:5]}"
-            )
-        return p, gold
-
-    covering = []
-    for p in sorted(gold_dir.glob("queries*.jsonl")):
-        try:
-            gold = load_gold(str(p))
-        except Exception as exc:  # noqa: BLE001 - a malformed draft must not abort the search
-            log.debug("skipping %s: %s", p.name, exc)
-            continue
-        if qids <= {g.qid for g in gold}:
-            covering.append((p, gold))
-    if not covering:
-        raise SystemExit(f"no gold file under {gold_dir} covers all {len(qids)} run qids")
-    # Smallest covering set: a superset file would pull in queries the run never answered,
-    # and `deterministic_scores` would be computed against gold records with no answer.
-    p, gold = min(covering, key=lambda pg: len(pg[1]))
-    if len(covering) > 1:
-        log.info("gold candidates: %s -> chose %s", [c[0].name for c in covering], p.name)
-    return p, [g for g in gold if g.qid in qids]
+    """Thin wrapper turning the library's ValueError into a clean CLI exit."""
+    try:
+        return _resolve_gold(qids, gold_dir, explicit)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
 
 
 def _consensus(samples: list[list[dict]]) -> list[dict]:

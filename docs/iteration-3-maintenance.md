@@ -8,7 +8,7 @@ with its measurement, whether or not the measurement is the one the plan hoped f
 | 3.6a | contradiction pass v2 | not started |
 | 3.6b | `ReproducibilityArtifact` routing | scoped, not started — see below |
 | 3.6c | `attribution` rubric | **closed: hypothesis refuted, instrument fixed** |
-| 3.6d | second annotator | not started (needs a second human) |
+| 3.6d | second annotator | **instrumented and sampled; blocked on a second human** |
 
 ---
 
@@ -139,6 +139,72 @@ Cost: $6.75, 272 judge calls, `gpt-5.4-mini`.
   attribution scores. It is a large reduction, not an elimination.
 - **The 34 have now been looked at three times.** A fourth rubric measured on them is
   fitting to the test set. This is a further reason the next attempt should not be a rubric.
+
+---
+
+## 3.6d Second annotator — instrumented, sampled, awaiting labels
+
+**Why it is the right item after 3.6c, not a formality.** Every κ in §6 is agreement with
+one person, so *"`coverage` is trustworthy at +0.72"* strictly means *"the judge agrees with
+this grader"*. More sharply: **human–human agreement is the ceiling for judge–human
+agreement.** If two readers agree on `attribution` at +0.45, no judge can be expected to
+clear a 0.6 bar against either of them — the bar would sit above the ceiling and the
+criterion was unreachable by construction. That is a live hypothesis for what 3.6c ran into:
+three rubrics, all stuck at +0.29…+0.45, with the judge never returning a 5 in 34 answers.
+
+`ceiling()` reports one of three readings per criterion, and they call for opposite work:
+
+| reading | what it means | what to do |
+|---|---|---|
+| human–human **below** the bar | the bar is above the ceiling | re-specify or drop the criterion; stop re-prompting it |
+| human–human above, judge below | the criterion is sound | judge work is justified |
+| judge tracks one reader much better | §10 in its literal form | the judge learned one grader's taste |
+
+**The sample.** 20 of the 34, stratified proportionally by query type so they stand in for
+the set §6 reports on:
+
+| type | in the 34 | sampled |
+|---|---|---|
+| relational | 14 | 8 |
+| refutation | 9 | 5 |
+| lookup | 6 | 4 |
+| open-directions | 5 | 3 |
+
+Proportional, deliberately — the opposite choice from `contradiction_audit.sample_pairs`,
+which uses equal-n because there the rare class was the one under suspicion. The cost is
+that `refutation_handling` is gradeable on only **5** rows (it is null wherever the gold
+encodes no contradiction), so its κ will not be comparable to the others and should not be
+reported as though it were. `gradeable_n` prints the per-criterion n for that reason.
+
+**Blinding.** The sheet withholds the first grades, the judge's scores, and the retrieved
+evidence, and shuffles across strata. The evidence exclusion is not incidental: §3.1 records
+that the judge grades `attribution` with the context in its prompt while the human grades
+from the answer alone, so showing annotator B the evidence would measure that asymmetry
+rather than disagreement between readers. A test pins the invariant at the type level —
+`AnswerSample`'s fields *are* the contract, so a field that is not on it cannot reach the
+sheet.
+
+**What is blocked, and what is not.** The tooling, the sample and the scoring are done and
+tested end-to-end. The labels are not something this repo can generate:
+
+| pass | who grades | what it settles |
+|---|---|---|
+| `--annotator second` | a different person | §10. The only pass that discharges it. |
+| `--annotator retest` | the original grader, blind, later | how stable the labels are — the human analogue of 3.6c's temperature finding, and a bound on every κ in §6. Two passes by one reader are not two readers. |
+| `--annotator model` | a different model, different prompt | bounds rather than settles, exactly as §8.2 says of its own audit |
+
+The original grader **cannot** be the second annotator; re-grading measures test–retest
+consistency, which is a different and separately useful number. `--annotator` is recorded in
+the sheet and echoed in the scoring output so a `model` run cannot be quietly reported as a
+second annotator.
+
+```bash
+python scripts/annotator_agreement.py <run> --sample > eval/gold/annotator_b.jsonl
+python scripts/annotator_agreement.py --show      # the sheet, one answer at a time
+python scripts/annotator_agreement.py <run> --score
+```
+
+`eval/gold/annotator_b.jsonl` is committed with 20 rows and every `grade` null.
 
 ---
 

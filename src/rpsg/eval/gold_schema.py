@@ -11,8 +11,12 @@ its complexity, and a natural mix averages the advantage away. Always report by 
 from __future__ import annotations
 
 from enum import Enum
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class QueryType(str, Enum):
@@ -50,6 +54,48 @@ class GoldRecord(BaseModel):
     # Filled in on a ~20-query calibration subset only (your own 1-5 ratings per criterion).
     grade: dict[str, int] | None = None
     notes: str | None = None
+
+
+def resolve_gold(
+    qids: set[str], gold_dir: Path, explicit: str | None = None
+) -> tuple[Path, list[GoldRecord]]:
+    """The gold file covering every qid in `qids`, and its records restricted to them.
+
+    Auto-selected rather than defaulting to `queries.jsonl`, because the active gold set is
+    the 10-query thesis subset while the hand-graded calibration run covers 34. Defaulting
+    would silently work on 10 of 34 and report a figure over a third of the sample.
+
+    Lives here rather than in a script because `rejudge.py` and `annotator_agreement.py`
+    both need it, and `scripts/` is not an importable package.
+    """
+    from pathlib import Path
+
+    if explicit:
+        p = Path(explicit)
+        if not p.is_absolute():
+            p = gold_dir / explicit
+        gold = load_gold(str(p))
+        missing = qids - {g.qid for g in gold}
+        if missing:
+            raise ValueError(
+                f"{p.name} is missing {len(missing)} of the requested qids: "
+                f"{sorted(missing)[:5]}"
+            )
+        return p, gold
+
+    covering = []
+    for p in sorted(gold_dir.glob("queries*.jsonl")):
+        try:
+            gold = load_gold(str(p))
+        except Exception:  # noqa: BLE001 - a malformed draft must not abort the search
+            continue
+        if qids <= {g.qid for g in gold}:
+            covering.append((p, gold))
+    if not covering:
+        raise ValueError(f"no gold file under {gold_dir} covers all {len(qids)} qids")
+    # Smallest covering set: a superset would pull in queries the caller has no answer for.
+    p, gold = min(covering, key=lambda pg: len(pg[1]))
+    return p, [g for g in gold if g.qid in qids]
 
 
 def load_gold(path: str) -> list[GoldRecord]:
