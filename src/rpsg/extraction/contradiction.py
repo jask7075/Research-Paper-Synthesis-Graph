@@ -54,7 +54,9 @@ CLAIM_TYPES = frozenset({"Claim", "Limitation"})
 #: lost the entire run because the cache was written only at the end.
 _CHECKPOINT = 100
 
-_SYSTEM = """You judge whether two claims from DIFFERENT research papers conflict.
+PROMPT_VERSION = "v2"
+
+_SYSTEM_V1 = """You judge whether two claims from DIFFERENT research papers conflict.
 
 Answer with JSON only: {"verdict": "refutes"|"undercuts"|"neither", "reason": "<12 words"}
 
@@ -66,6 +68,63 @@ Answer with JSON only: {"verdict": "refutes"|"undercuts"|"neither", "reason": "<
 Default to "neither". Claims about different systems, different regimes, or different
 quantities do NOT conflict merely by sharing vocabulary. Two papers reporting different
 numbers for different setups is not a contradiction."""
+
+#: v2 replaces v1's one-line warning with the worked negatives §8.2 prescribed.
+#:
+#: v1 accepted 3,072 of 16,972 pairs at 32.5% edge precision. The audit found the failure is
+#: a single pattern -- and it is the pattern v1's last paragraph already warns against in
+#: prose. Twelve of twenty spurious `refutes` are two papers describing their own different
+#: scopes. A prose warning did not prevent it; the fix is to show the model what the error
+#: looks like, since over-acceptance is the predicted failure mode when similarity carries no
+#: information about whether a conflict exists (see the module docstring).
+#:
+#: The seven categories below are the labelled spurious `refutes` from
+#: `eval/gold/contradiction_audit.jsonl`, generalised. Because those twelve pairs are now IN
+#: the prompt, v2 CANNOT be scored on the sixty pairs they came from -- that is training data.
+#: A fresh stratified sample is required, which is what `--label-with` exists to label.
+_SYSTEM_V2 = """You judge whether two claims from DIFFERENT research papers conflict.
+
+Answer with JSON only: {"verdict": "refutes"|"undercuts"|"neither", "reason": "<12 words"}
+
+  refutes    the two cannot both be true -- a direct empirical or logical conflict
+  undercuts  A does not contradict B but weakens its support: a scope limit, a failure
+             mode, a caveat narrowing where B holds
+  neither    same topic but compatible, or too vague to judge
+
+Default to "neither", and prefer it whenever you are reasoning about what the claims imply
+rather than what they assert. A conflict has to be on the page.
+
+These are all "neither". Each was previously mislabelled as a conflict:
+
+1. EACH PAPER STATING ITS OWN SCOPE. "General deterministic treatment of per-qubit noise"
+   vs "the general-noise analysis is restricted to single-qubit noise". Two papers saying
+   what they themselves did. Neither asserts the other is wrong.
+2. DIFFERENT MODELLING CHOICES. "2-qubit Pauli error rate set to double the single-qubit
+   rate" vs "single-qubit gates are perfect in the chosen noise model". Two chosen setups,
+   not a factual disagreement.
+3. CLAIMS THAT ACTUALLY AGREE. "Experiments use synthetic, low-dimensional datasets" vs
+   "only classical 2-feature data evaluated" -- the same limitation twice. Also "RQCs run in
+   m full cycles followed by measurement of all qubits" vs "requires measuring all qubits at
+   the final step": a restatement, not a conflict.
+4. UNRELATED SYSTEMS SHARING VOCABULARY. "Error rates increase with number of latent bits"
+   (a VAE) vs "growing the lattice does not increase component error rates" (a surface
+   code). Both mention error rates and size; they are about different things.
+5. A PAPER'S OWN CONTRIBUTION VS SOMEONE ELSE'S RESULT. "Insights on the quantum advantage
+   of QAOA" vs "refutes the Sycamore quantum advantage claim". One describes what a paper
+   offers; the other is a different paper's finding about a different system.
+6. ONE CLAIM NAMING A GAP THE OTHER FILLS. "Need readout error mitigation beyond gate
+   error" vs "readout crosstalk is ignored". A stated need and a stated limitation are
+   compatible.
+7. METADATA AND BOILERPLATE. "All authors contributed to the writing of the manuscript" vs
+   "SA performed the study and wrote the initial draft". Never a scientific conflict.
+   Return "neither" for anything that is not a scientific assertion.
+
+A real `refutes` needs both papers to assert something about the SAME system under the SAME
+conditions, such that one being right makes the other wrong. A real `undercuts` needs B's
+support to be genuinely weakened by A -- a measured failure of B's method, a demonstrated
+scope limit on B's claim -- not merely a caveat sitting next to it."""
+
+SYSTEM_PROMPTS = {"v1": _SYSTEM_V1, "v2": _SYSTEM_V2}
 
 
 class Contradiction(NamedTuple):
@@ -176,13 +235,25 @@ def adjudicate(
     model: str,
     cache_path: Path | None = None,
     workers: int = 8,
+    prompt_version: str = PROMPT_VERSION,
 ) -> list[Contradiction]:
     """Ask the model to rule on each pair, caching by claim-text pair.
 
     Cached by *text* rather than node id so the cache survives a re-extraction that
     renumbers nodes -- the same choice `semantic_merge` makes, and the reason its cache
     outlived one full re-extraction.
+
+    The cache key includes `prompt_version`, because it must not. A prompt change makes every
+    stored verdict stale, and v1's key did not record which prompt produced it -- so a v2 run
+    against the v1 cache would return 16,965 v1 verdicts and report them as v2's. §8.2's
+    "the verdict cache means a re-run costs only what changes" was wrong for exactly this
+    reason: a prompt edit changes everything.
     """
+    if prompt_version not in SYSTEM_PROMPTS:
+        raise ValueError(
+            f"unknown prompt version {prompt_version!r}; have {sorted(SYSTEM_PROMPTS)}"
+        )
+    system = SYSTEM_PROMPTS[prompt_version]
     cache: dict[str, dict] = {}
     if cache_path and cache_path.exists():
         cache = json.loads(cache_path.read_text())
@@ -204,7 +275,7 @@ def adjudicate(
             f"  evidence: {' '.join(b.get('evidence') or [])[:400]}"
         )
         try:
-            raw = client.text(system=_SYSTEM, user=user, max_tokens=200)
+            raw = client.text(system=system, user=user, max_tokens=200)
             parsed = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
             verdict = parsed.get("verdict", "neither")
             if verdict not in ("refutes", "undercuts", "neither"):

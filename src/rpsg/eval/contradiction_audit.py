@@ -157,3 +157,100 @@ def summarize(result: dict[str, Any], *, accepted_total: int | None = None) -> s
         lines.append(f"\nmissed: {missed}/{sum(miss.values())} sampled `neither` pairs are "
                      f"real disagreements the pass discarded")
     return "\n".join(lines)
+
+#: The labeller's own prompt. Deliberately NOT the adjudicator's: it defines the three
+#: outcomes and stops, with none of the worked negatives v2 carries. A labeller primed with
+#: the same examples as the system under test would agree with it by construction, and the
+#: audit would measure shared priors rather than correctness.
+LABELLER_SYSTEM = """You are auditing whether two claims from DIFFERENT research papers
+genuinely conflict. Answer with JSON only:
+{"verdict": "refutes"|"undercuts"|"neither", "reason": "<15 words"}
+
+  refutes    the two cannot both be true of the same system under the same conditions
+  undercuts  A does not contradict B but genuinely weakens its support
+  neither    compatible, unrelated, or not a scientific assertion at all
+
+Judge only what the claims assert, not what they might imply. You are not told what any
+other system decided about this pair; decide it yourself."""
+
+
+def label_with_model(
+    samples: list[Sample], *, model: str, workers: int = 8
+) -> dict[str, dict[str, str]]:
+    """Blind model labels, keyed by `pair_id`.
+
+    The sample carries `model_verdict`, and this function never puts it in the prompt. That
+    is the same rule the human sheet follows, and it is load-bearing twice over: a labeller
+    shown the verdict agrees with it, and a labeller that is *the same model* as the
+    adjudicator agrees with it anyway. Use a different model.
+
+    §8.2's audit was labelled this way -- "a different model, a different prompt, and no
+    sight of the original verdict" -- but by hand rather than in code, so it could not be
+    re-run and was never itself calibrated. `--label-with` plus `agreement_with_humans`
+    closes both gaps.
+    """
+    import json
+    from concurrent.futures import ThreadPoolExecutor
+
+    from rpsg.llm import get_chat_client
+
+    client = get_chat_client(model)
+
+    def ask(s: Sample) -> dict[str, str]:
+        user = (
+            f"CLAIM A (paper {s.a_paper}): {s.a_text}\n"
+            f"  evidence: {' '.join(s.a_evidence or [])[:400]}\n\n"
+            f"CLAIM B (paper {s.b_paper}): {s.b_text}\n"
+            f"  evidence: {' '.join(s.b_evidence or [])[:400]}"
+        )
+        try:
+            raw = client.text(system=LABELLER_SYSTEM, user=user, max_tokens=200)
+            parsed = json.loads(raw[raw.index("{") : raw.rindex("}") + 1])
+            verdict = parsed.get("verdict", "neither")
+            if verdict not in VERDICTS:
+                verdict = "neither"
+            return {"verdict": verdict, "reason": str(parsed.get("reason", ""))[:120]}
+        except Exception:  # noqa: BLE001 - an unlabelled pair is excluded, not guessed
+            return {"verdict": "", "reason": "labelling failed"}
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return dict(zip([s.pair_id for s in samples], pool.map(ask, samples), strict=True))
+
+
+def agreement_with_humans(
+    labels: list[dict[str, Any]], model_labels: dict[str, dict[str, str]]
+) -> str:
+    """Is the model labeller usable as a stand-in for the human one?
+
+    Runs before any fresh audit is believed. §8.2 reported its edge precision from model
+    labels while noting they "bound the error rate rather than settling it" -- but never
+    measured how good the bound is. This does, on the 60 pairs that carry both.
+
+    Reported as exact agreement and as agreement on the binary question the audit actually
+    turns on (is this pair a disagreement at all), because `refutes` vs `undercuts` is a
+    typing distinction that `edge_precision` deliberately ignores.
+    """
+    both = [
+        (r["human"], model_labels[r["pair_id"]]["verdict"])
+        for r in labels
+        if r.get("human") in VERDICTS
+        and r["pair_id"] in model_labels
+        and model_labels[r["pair_id"]]["verdict"] in VERDICTS
+    ]
+    if not both:
+        return "no pair carries both a human and a model label"
+    exact = sum(1 for h, m in both if h == m)
+    is_edge = lambda v: v in ("refutes", "undercuts")  # noqa: E731
+    binary = sum(1 for h, m in both if is_edge(h) == is_edge(m))
+    lines = [
+        f"model labeller vs human labels  (n={len(both)})",
+        f"  exact agreement          {exact / len(both):.1%}  ({exact}/{len(both)})",
+        f"  agrees on 'is it an edge' {binary / len(both):.1%}  ({binary}/{len(both)})",
+        "",
+        "  human -> model    " + "".join(f"{v:>11}" for v in VERDICTS),
+    ]
+    for h in VERDICTS:
+        row = [sum(1 for hh, mm in both if hh == h and mm == m) for m in VERDICTS]
+        if sum(row):
+            lines.append(f"  {h:17}" + "".join(f"{c:>11}" for c in row))
+    return "\n".join(lines)

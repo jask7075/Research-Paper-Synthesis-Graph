@@ -5,7 +5,7 @@ with its measurement, whether or not the measurement is the one the plan hoped f
 
 | # | item | status |
 |---|---|---|
-| 3.6a | contradiction pass v2 | not started |
+| 3.6a | contradiction pass v2 | **written and run; the ≥70% bar is unmeasurable — see below** |
 | 3.6b | `ReproducibilityArtifact` routing | **closed: 3 faults found, 2 fixed; not applied to the corpus** |
 | 3.6c | `attribution` rubric | **closed: hypothesis refuted, instrument fixed** |
 | 3.6d | second annotator | **closed as test–retest: two criteria confirmed, two retired** |
@@ -249,6 +249,84 @@ they now hold across two human passes and a deterministic judge. Those are the t
   not usable. Settling it needs the full 9, and really needs more refutation queries than
   the gold set contains.
 - **Test–retest is an upper bound on stability**, not an estimate, because of recall.
+
+---
+## 3.6a Contradiction pass v2 — prompt rewritten, bar unmeasurable
+
+**What the plan asked for.** Worked negative examples in the prompt, re-run, re-audit to
+≥70% edge precision. §8.2 had characterised the failure as one pattern: twelve of twenty
+spurious `refutes` are two papers describing their own different scopes, which v1's prose
+warning did not prevent.
+
+### The prompt
+
+`_SYSTEM_V2` carries the twelve labelled spurious `refutes`, generalised into seven
+categories: each paper stating its own scope; different modelling choices; claims that
+actually agree; unrelated systems sharing vocabulary; a paper's own contribution vs another's
+result; a stated need beside a stated limitation; and author-contribution boilerplate, which
+is not a scientific assertion at all. `SYSTEM_PROMPTS` keeps v1 as a named control.
+
+**A bug found on the way in.** §8.2 said *"the verdict cache means a re-run costs only what
+changes"*. That was wrong, and dangerously so: the cache key was `a_name␟b_name` with no
+record of which prompt produced the verdict, so a v2 run against the existing cache would
+have returned 16,965 **v1** verdicts and reported them as v2's. The key is now
+version-scoped.
+
+### What was measured
+
+Re-adjudicating all 3,072 pairs v1 accepted, under v2 ($0.60):
+
+```
+v2 retains 1,172 of 3,072  (38.2%) — it rejects 1,900
+
+  v1 -> v2        refutes  undercuts    neither
+  refutes              44         58         61
+  undercuts            29      1,041      1,839
+```
+
+§8.2's audit put edge precision at 32.5%, i.e. ~998 of the 3,072 are real. v2 retained
+**1,172**. That is close to the number of edges the audit says exist, which is what the fix
+was supposed to do.
+
+**It is consistent with the fix working and it does not demonstrate it.** v2 could have
+rejected 1,900 pairs and retained 1,172 without the retained set being the *right* 1,172.
+Retention count is not precision.
+
+### Why the bar cannot be evaluated: the audit instrument fails on the positive class
+
+Scoring v2 needs a labeller. §8.2's sixty labels came from a model — its own caveat says so
+— but the labelling was done by hand, was never re-runnable, and was never itself checked.
+`--label-with` makes it a scripted, blind pass, and `--validate-labeller` scores it against
+those existing sixty labels before anything is believed. That check is new, and it fails:
+
+```
+model labeller (gpt-5.4-mini) vs the existing 60 labels     exact 76.7%
+
+  existing -> model   refutes  undercuts  neither
+  refutes                   1          1        3     ← finds 2 of 5
+  undercuts                 1          0        9     ← finds 1 of 10
+  neither                   0          0       45     ← perfect
+```
+
+The 76.7% is an artefact of the class balance: 45 of the 60 labels are `neither`, and the
+labeller answers `neither` to almost everything. **On the fifteen pairs the audit calls a
+real disagreement, it agrees on two.** A labeller like that reports low edge precision
+whatever the truth, so it cannot test a ≥70% claim. No stronger model is reachable on this
+project key (`gpt-5.4` and `gpt-4.1` both 403; only `-mini` and `-nano` resolve), and no
+Anthropic key is configured, so a different-family labeller is not available either.
+
+**This also widens the error bars on §8.2 itself.** Its 32.5% came from a model labeller
+too. Two model labellers now disagree substantially on the positive class — the one thing
+edge precision depends on — so 32.5% should be read as one labeller's figure, not as the
+pass's precision.
+
+### Status
+
+The edges remain **unapplied** (`approved: false`), exactly as §8.2 left them. §4.3 stands
+unimproved. v2 is committed and runnable; what is missing is not code but ~60 human labels
+on a fresh stratified sample, which is the same blocker 3.6d hit from the other direction.
+
+Cost: $0.63 — 3,072 adjudications plus 60 labeller-validation calls.
 
 ---
 ## 3.6b `ReproducibilityArtifact` routing — measured; two of three causes fixed
