@@ -40,8 +40,9 @@ _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
     # from 12 nodes to 242, and still missed it — the routing has to follow where papers
     # actually state things, not where a reader would expect the detail to live.
     "abstract": (
-        [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM, NodeType.HARDWARE],
-        [EdgeType.ADDRESSES, EdgeType.REQUIRES],
+        [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM, NodeType.HARDWARE,
+         NodeType.REPRO_ARTIFACT],
+        [EdgeType.ADDRESSES, EdgeType.REQUIRES, EdgeType.PROVIDES],
     ),
     "introduction": (
         [NodeType.PROBLEM, NodeType.METHOD, NodeType.CLAIM],
@@ -58,12 +59,14 @@ _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
     # absent from the graph with no error anywhere. Experimental setup is stated in
     # `method`, and run configuration in `results`, so both must be able to see it.
     "method": (
-        [NodeType.METHOD, NodeType.SOFTWARE, NodeType.HARDWARE],
-        [EdgeType.BUILDS_ON, EdgeType.ADDRESSES, EdgeType.USES, EdgeType.REQUIRES],
+        [NodeType.METHOD, NodeType.SOFTWARE, NodeType.HARDWARE, NodeType.REPRO_ARTIFACT],
+        [EdgeType.BUILDS_ON, EdgeType.ADDRESSES, EdgeType.USES, EdgeType.REQUIRES,
+         EdgeType.PROVIDES],
     ),
     "results": (
-        [NodeType.DATASET, NodeType.METHOD, NodeType.CLAIM, NodeType.HARDWARE],
-        [EdgeType.EVALUATED_ON, EdgeType.REQUIRES],
+        [NodeType.DATASET, NodeType.METHOD, NodeType.CLAIM, NodeType.HARDWARE,
+         NodeType.REPRO_ARTIFACT],
+        [EdgeType.EVALUATED_ON, EdgeType.REQUIRES, EdgeType.PROVIDES],
     ),
     "discussion": (
         [NodeType.CLAIM, NodeType.LIMITATION],
@@ -79,8 +82,8 @@ _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
     # unreachable for such papers — i.e. the relational core of the thesis
     # ("which methods were limited by Y") had no data to draw on.
     "conclusion": (
-        [NodeType.CLAIM, NodeType.LIMITATION, NodeType.PROBLEM],
-        [EdgeType.ADDRESSES],
+        [NodeType.CLAIM, NodeType.LIMITATION, NodeType.PROBLEM, NodeType.REPRO_ARTIFACT],
+        [EdgeType.ADDRESSES, EdgeType.PROVIDES],
     ),
     # "Data/Code availability" statements: short, and almost pure reproducibility
     # payload (repo URLs, dataset access terms). Asking for Method/Problem/Claim here —
@@ -96,17 +99,36 @@ _SECTION_TYPES: dict[str, tuple[list[NodeType], list[EdgeType]]] = {
 }
 
 # Default for "other"/unclassified sections: the common semantic types, no rare edges.
+# `ReproducibilityArtifact` is here because `other` is 58% of all chunks and carries a
+# repo or archive URL for 14 papers -- more than any single typed section. GROBID leaves a
+# section untyped whenever the heading is unusual, and "Code and data availability" under a
+# heading it does not recognise lands here rather than in `availability`.
 _DEFAULT_TYPES = (
-    [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM, NodeType.LIMITATION],
-    [EdgeType.ADDRESSES, EdgeType.BUILDS_ON],
+    [NodeType.METHOD, NodeType.PROBLEM, NodeType.CLAIM, NodeType.LIMITATION,
+     NodeType.REPRO_ARTIFACT],
+    [EdgeType.ADDRESSES, EdgeType.BUILDS_ON, EdgeType.PROVIDES],
 )
 
 _REPRO_HINT = """\
 Reproducibility fields to capture in `attrs` when present:
   Hardware: {vendor, gpu_type, gpu_count, quantum_vendor, qubit_count, wall_clock_hours}
   Software: {name, version}
-  ReproducibilityArtifact: {code_url, dataset_access(one of open|licensed|irb|unknown)}
+  ReproducibilityArtifact: {code_url, dataset_access(one of open|licensed|irb|on_request|unknown)}
 Quantum hardware matters: capture vendor + qubit_count exactly (e.g. "IBM", 127).
+A ReproducibilityArtifact is an AVAILABILITY STATEMENT and nothing else. Emit one only when
+the text says where code or data can be obtained, and it MUST carry `code_url` or
+`dataset_access`. A named library, package or tool the paper merely used is `Software`, not
+an artifact -- do not emit a ReproducibilityArtifact for it, and never put {name, version}
+on one.
+
+Availability statements are often one sentence in a conclusion, an abstract or an untyped
+section rather than under a heading: "our implementation can be found at <url>", "source
+code is available at <url>", "data are available from the authors upon reasonable request".
+Capture the URL verbatim, including when the PDF has split it across a line break
+("https: //github.com/..." -> "https://github.com/..."), and including hosts other than
+GitHub. A reference list in the same chunk does not make the statement a reference.
+Use dataset_access=on_request for "upon (reasonable) request", open for a public repository
+or archive, licensed where terms are stated, irb for ethics-restricted access.
 """
 
 
@@ -114,7 +136,17 @@ def build_user_prompt(paper_id: str, section_title: str, section_type: str, text
     node_types, edge_types = _SECTION_TYPES.get(section_type, _DEFAULT_TYPES)
     allowed_nodes = ", ".join(t.value for t in node_types)
     allowed_edges = ", ".join(t.value for t in edge_types) or "(none expected)"
-    hint = _REPRO_HINT if NodeType.HARDWARE in node_types else ""
+    # Gated on either type, not on `Hardware` alone. The hint carries the
+    # `code_url`/`dataset_access` field list, so a section routed to
+    # `ReproducibilityArtifact` but not to `Hardware` -- `conclusion`, and the `other`
+    # default -- would otherwise be asked for the node type without being told which
+    # attributes to fill, which is how `code_url` came back 0-for-15 with the field list
+    # sitting one branch away.
+    hint = (
+        _REPRO_HINT
+        if NodeType.HARDWARE in node_types or NodeType.REPRO_ARTIFACT in node_types
+        else ""
+    )
     return (
         f"PAPER: {paper_id}\n"
         f"SECTION: {section_title}  (type: {section_type})\n"

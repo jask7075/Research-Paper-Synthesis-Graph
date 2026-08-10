@@ -112,6 +112,12 @@ class DatasetAccess(str, Enum):
     OPEN = "open"
     LICENSED = "licensed"
     IRB = "irb"
+    #: "available from the authors upon reasonable request" -- 15 papers in this corpus say
+    #: it, and it is neither open nor licensed: there is no artifact to fetch and no licence
+    #: to accept, only a person to email. Its absence made two authored `repro_gold` values
+    #: unscoreable, so the repro layer's `dataset_access` ceiling was 4 of 6 rather than 6
+    #: of 6 no matter what the extractor did.
+    ON_REQUEST = "on_request"
     UNKNOWN = "unknown"
 
 

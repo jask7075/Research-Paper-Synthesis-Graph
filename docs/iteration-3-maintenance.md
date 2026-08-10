@@ -6,7 +6,7 @@ with its measurement, whether or not the measurement is the one the plan hoped f
 | # | item | status |
 |---|---|---|
 | 3.6a | contradiction pass v2 | not started |
-| 3.6b | `ReproducibilityArtifact` routing | scoped, not started — see below |
+| 3.6b | `ReproducibilityArtifact` routing | **closed: 3 faults found, 2 fixed; not applied to the corpus** |
 | 3.6c | `attribution` rubric | **closed: hypothesis refuted, instrument fixed** |
 | 3.6d | second annotator | **closed as test–retest: two criteria confirmed, two retired** |
 
@@ -251,12 +251,16 @@ they now hold across two human passes and a deterministic judge. Those are the t
 - **Test–retest is an upper bound on stability**, not an estimate, because of recall.
 
 ---
-## 3.6b `ReproducibilityArtifact` routing — scoped, not started
+## 3.6b `ReproducibilityArtifact` routing — measured; two of three causes fixed
 
-§7.2 attributes `code_url` 0-for-15 and `dataset_access` 0-for-14 to a prompt-routing gap.
-Tracing all five gold papers that state a `code_url` to the section stating it:
+§7.2 attributed `code_url` 0-for-15 and `dataset_access` 0-for-14 to a prompt-routing gap.
+It is three separate faults, and naming them apart is what made the fix measurable.
 
-| paper | section | `REPRO_ARTIFACT` routed there? |
+### Fault 1 — routing (the one §7.2 named)
+
+Tracing all five gold papers that state a `code_url` to the section that states it:
+
+| paper | section | `REPRO_ARTIFACT` routed there before? |
 |---|---|---|
 | `1db5090a` | conclusion | no |
 | `60f69f1c` | abstract | no |
@@ -264,16 +268,87 @@ Tracing all five gold papers that state a `code_url` to the section stating it:
 | `30a35856` | results | no |
 | `91c10ab4` | **availability** | **yes** |
 
-Four of five are the §2.4 `Hardware` pattern exactly, and the fix is the same shape: the
-type is only reachable from `availability` and `appendix`. Corpus-wide, repo/archive URLs
-appear in `other` (14 papers), `conclusion` (6), `abstract` (5), `method` (2) and `results`
-(2) — and `other` falls through to `_DEFAULT_TYPES`, which does not list the type at all.
+Four of five are the §2.4 `Hardware` pattern exactly. Corpus-wide, repo/archive URLs appear
+in `other` (14 papers), `conclusion` (6), `abstract` (5), `method` (2), `results` (2) — and
+`other`, 58% of all chunks, fell through to `_DEFAULT_TYPES`, which did not list the type.
+`REPRO_ARTIFACT` is now routed to all of those.
 
-`91c10ab4` is **not** a routing gap and the report's framing hides it: the type *is* routed
-to `availability`, that paper's availability chunk does contain the URL, and no
-`ReproducibilityArtifact` node was produced. Its text reads `https: //github.com/...` — a
-space injected by PDF extraction — inside what is otherwise a reference list. So there are
-two failures here, and only one of them is routing.
+### Fault 2 — the hint gate followed `Hardware`
 
-Also worth noting for whoever picks this up: `30a35856`'s URL is on `atomgit.com`, not
-GitHub. A fix that keys on `github.com` would miss it.
+`_REPRO_HINT` carries the `code_url` / `dataset_access` field list, and it was emitted only
+when `Hardware` was in the section's type list. So `conclusion` and the `other` default would
+have been asked for `ReproducibilityArtifact` **without being told which attributes to
+fill**. The instruction was one branch away from the node type that needed it.
+
+### Fault 3 — the schema could not express what 15 papers say
+
+`DatasetAccess` offered `open|licensed|irb|unknown`. Two gold records authored `on request`,
+which is none of those: there is no artifact to fetch and no licence to accept, only a person
+to email. **Those two fields were unscoreable by any extraction**, so `dataset_access` had a
+ceiling of 4 of 6 before the extractor was even involved. 15 papers in the corpus use that
+language. `DatasetAccess.ON_REQUEST` now exists; `normalize()` already made the gold's
+`on request` match it, so no gold was re-authored.
+
+### Result
+
+21 gold papers re-extracted into a scratch file — `04_extract.py --papers ... --out ...`, so
+the corpus extraction is untouched while the answer is unknown. Run three times, because
+**extraction temperature is not pinned either** and a single run cannot separate a fix from
+resampling. Noise floor: **9 of 147 field outcomes differ between two identical-prompt runs.**
+
+| field | before | after ×3 |
+|---|---|---|
+| `code_url` | **0** | 2, 3, 3 |
+| `dataset_access` | **0** | 3, 3, 2 |
+| `quantum_vendor` | 2 | 2, 2, 3 |
+| `device_name` | 1 | 2, 2, 2 |
+| `qubit_count` | 3 | 2, 1, 2 |
+| `gpu_type` | 1 | 2, 1, 1 |
+| `gpu_count` | 1 | 1, 1, 1 |
+| **total correct** | **8** | **14, 13, 14** |
+| accuracy | 73.2% | 77.5% |
+
+Recall on stated facts roughly doubles, 8/37 → 14/37. Hallucinations are unchanged at 8, 8, 7.
+
+**What is reliable, per field, across all three runs:**
+
+| paper | field | section | outcome | which fault |
+|---|---|---|---|---|
+| `1db5090a` | `code_url` | conclusion | fixed 3/3 | routing |
+| `30a35856` | `code_url` | results | fixed 3/3 | routing |
+| `31824833` | `dataset_access` | other | fixed 3/3 | routing + enum |
+| `10db0441` | `dataset_access` | availability | fixed 3/3 | **enum only** — was never a routing gap |
+| `91c10ab4` | `code_url` | availability | 2/3 | neither; see below |
+| `30a35856` | `dataset_access` | results | 2/3 | routing |
+| `60f69f1c` | `code_url` | abstract | **0/3** | routing did not help |
+| `cca36fcf` | `code_url`, `dataset_access` | abstract | **0/3** | routing did not help |
+| `1db5090a` | `dataset_access` | conclusion | **0/3** | `open` not inferred |
+| `91c10ab4` | `dataset_access` | availability | **0/3** | `open` not inferred |
+
+### Two things the fix did not do, stated plainly
+
+**Abstract routing does not work.** `60f69f1c` and `cca36fcf` state their URLs in the last
+sentence of the abstract, in plain language (*"Our implementation can be found at: <url>"*,
+*"Reproducibility: source code and computational results are available at <url>"*). Both are
+now routed and both failed 3 times out of 3. `60f69f1c` shows the mechanism: it emitted
+`ReproducibilityArtifact` nodes carrying **`{name, version}`** — a `Software` payload — for
+Qiskit, PySCF and an IBM backend, and never touched the URL. `abstract` is not routed to
+`SOFTWARE`, so the model used the nearest available slot and spent its budget there. A hint
+forbidding that (*"a named library the paper merely used is `Software`, not an artifact"*) did
+not measurably help at n=21; it is kept because a `ReproducibilityArtifact` carrying
+`{name, version}` is wrong regardless, but it is **not demonstrated** and should not be
+reported as a gain.
+
+**`dataset_access: open` is not inferred from a public repo URL.** Three papers state a
+GitHub URL and score `code_url` correct while `dataset_access` stays missed. The model does
+not read *"code is available at <public url>"* as implying open access, and arguably should
+not — code availability and data availability are different claims. This may be a gold
+authoring question rather than an extraction one, and it is the largest remaining block.
+
+### Not applied to the corpus
+
+The measurement is on 21 papers in a scratch file. A full re-extraction (271 papers,
+~$4.60) would be needed for the fix to reach the graph, and it **rebuilds the substrate every
+retrieval arm reads**, so Iteration 2's stored numbers would no longer describe the current
+graph. That is a call to make deliberately and alongside 3.5, not as a side effect of a
+maintenance item. The prompt and schema changes are committed; the re-extraction is not run.
