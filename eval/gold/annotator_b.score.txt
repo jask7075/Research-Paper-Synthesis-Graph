@@ -1,0 +1,32 @@
+
+Second pass: same grader, re-graded   n=20 of 20 sampled
+
+annotator A vs same grader, re-graded:
+     coverage             kappa=+0.81 rho=+0.85 (p=0.000, n=20)
+     attribution          kappa=+0.29 rho=+0.47 (p=0.036, n=20)
+     hedging_accuracy     kappa=+0.39 rho=+0.30 (p=0.194, n=20)
+     refutation_handling  kappa=+0.57 rho=+0.91 (p=0.030, n=5)
+     synthesis            kappa=+0.77 rho=+0.70 (p=0.001, n=20)
+
+judge vs annotator A:
+     coverage             kappa=+0.65 rho=+0.71 (p=0.000, n=20)
+     attribution          kappa=+0.30 rho=+0.27 (p=0.255, n=20)
+     hedging_accuracy     kappa=+0.66 rho=+0.49 (p=0.030, n=20)
+     refutation_handling  kappa=+0.33 rho=+0.46 (p=0.440, n=5)
+     synthesis            kappa=+0.76 rho=+0.86 (p=0.000, n=20)
+
+judge vs same grader, re-graded:
+     coverage             kappa=+0.72 rho=+0.77 (p=0.000, n=20)
+     attribution          kappa=+0.29 rho=+0.47 (p=0.037, n=20)
+     hedging_accuracy     kappa=+0.52 rho=+0.56 (p=0.010, n=20)
+     refutation_handling  kappa=+0.15 rho=+0.25 (p=0.685, n=5)
+     synthesis            kappa=+0.69 rho=+0.73 (p=0.000, n=20)
+
+criterion               human-human   judge-A   judge-B   reading
+  coverage                    +0.81     +0.65     +0.72   judge agrees with both readers alike
+  attribution                 +0.29     +0.30     +0.29   BAR ABOVE CEILING — readers agree at +0.29 < 0.6
+  hedging_accuracy            +0.39     +0.66     +0.52   BAR ABOVE CEILING — readers agree at +0.39 < 0.6
+  refutation_handling         +0.57     +0.33     +0.15   BAR ABOVE CEILING — readers agree at +0.57 < 0.6
+  synthesis                   +0.77     +0.76     +0.69   judge agrees with both readers alike
+
+  (min_kappa = 0.6)

@@ -42,3 +42,6 @@ reports/
 
 #Plain reports
 #docs/iteration-2-report-plain.md
+
+# Working copy of the 3.6d grading sheet; the grades belong in eval/gold/annotator_b.jsonl
+grading_sheet.txt

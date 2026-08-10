@@ -8,7 +8,12 @@ with its measurement, whether or not the measurement is the one the plan hoped f
 | 3.6a | contradiction pass v2 | not started |
 | 3.6b | `ReproducibilityArtifact` routing | scoped, not started — see below |
 | 3.6c | `attribution` rubric | **closed: hypothesis refuted, instrument fixed** |
-| 3.6d | second annotator | **instrumented and sampled; blocked on a second human** |
+| 3.6d | second annotator | **closed as test–retest: two criteria confirmed, two retired** |
+
+**The two closed items answer each other.** 3.6c could not make the judge agree with the
+grader on `attribution` past +0.45. 3.6d measured why: the grader agrees with *themselves*
+at **+0.29**, and the judge already sits at +0.30. The judge is at the human ceiling, and no
+rubric can pass it.
 
 ---
 
@@ -132,9 +137,14 @@ Cost: $6.75, 272 judge calls, `gpt-5.4-mini`.
 - **One judge model.** Everything above is `gpt-5.4-mini`. That the *rubric* cannot open the
   top of the scale is established for this model; whether a stronger judge would return 5 is
   untested, and is the cheapest remaining hypothesis.
-- **One grader.** Every κ here is agreement with a single annotator — §10's standing threat,
-  and exactly what 3.6d exists to address. If the human's 5s are idiosyncratic, no rubric
-  reaches them.
+- **One grader — now measured, and it is the answer.** 3.6d re-graded 20 of these answers
+  blind and found the grader agrees with *themselves* on `attribution` at **+0.29**, against
+  the judge's +0.30. The judge is not falling short of the human standard; there is no
+  single human standard to fall short of. The two readings the grader alternated between are
+  the same strict-vs-lenient axis v1 and v2 encoded, which is why rewriting the rubric moved
+  offset and ranking but never agreement-on-level. **This retires the rubric hypothesis
+  permanently** rather than leaving it parked behind the judge-model threat above — a
+  stronger judge cannot agree with a target that moves.
 - **Temperature 0 is not bit-determinism.** Two samples still disagreed on 4 of 34
   attribution scores. It is a large reduction, not an elimination.
 - **The 34 have now been looked at three times.** A fourth rubric measured on them is
@@ -142,72 +152,105 @@ Cost: $6.75, 272 judge calls, `gpt-5.4-mini`.
 
 ---
 
-## 3.6d Second annotator — instrumented, sampled, awaiting labels
+## 3.6d Second annotator — run as test–retest; two criteria confirmed, two retired
 
-**Why it is the right item after 3.6c, not a formality.** Every κ in §6 is agreement with
-one person, so *"`coverage` is trustworthy at +0.72"* strictly means *"the judge agrees with
-this grader"*. More sharply: **human–human agreement is the ceiling for judge–human
-agreement.** If two readers agree on `attribution` at +0.45, no judge can be expected to
-clear a 0.6 bar against either of them — the bar would sit above the ceiling and the
-criterion was unreachable by construction. That is a live hypothesis for what 3.6c ran into:
-three rubrics, all stuck at +0.29…+0.45, with the judge never returning a 5 in 34 answers.
+**What was actually run, and what it can therefore claim.** This is a one-person project, so
+the second pass was graded by the original annotator, blind, two days later. That is
+**test–retest**, not inter-annotator agreement. §10's single-grader threat is *not*
+discharged and must stay in the report. What this does measure is whether the grading
+standard is stable enough for any judge to be calibrated against it — and that turns out to
+be the question that mattered.
 
-`ceiling()` reports one of three readings per criterion, and they call for opposite work:
+The sheet withheld the first grades, the judge's scores and the retrieved evidence, and was
+shuffled across strata. `--annotator retest` is recorded in `eval/gold/annotator_b.jsonl`
+and echoed by the scorer, so this cannot later be read as a second annotator.
 
-| reading | what it means | what to do |
-|---|---|---|
-| human–human **below** the bar | the bar is above the ceiling | re-specify or drop the criterion; stop re-prompting it |
-| human–human above, judge below | the criterion is sound | judge work is justified |
-| judge tracks one reader much better | §10 in its literal form | the judge learned one grader's taste |
+### Result
 
-**The sample.** 20 of the 34, stratified proportionally by query type so they stand in for
-the set §6 reports on:
+| criterion | grader vs **self** | judge vs pass A | judge vs pass B | n | verdict |
+|---|---|---|---|---|---|
+| `coverage` | **+0.81** | +0.65 | +0.72 | 20 | **trustworthy** — stable standard, judge tracks both passes alike |
+| `synthesis` | **+0.77** | +0.76 | +0.69 | 20 | **trustworthy** — same |
+| `attribution` | **+0.29** | +0.30 | +0.29 | 20 | **retire** — the judge is already *at* the human ceiling |
+| `hedging_accuracy` | **+0.39** | +0.66 | +0.52 | 20 | **retire or re-specify** — below the bar, and the judge agrees with pass A better than the grader agrees with themselves |
+| `refutation_handling` | +0.57 | +0.33 | +0.15 | **5** | undecidable at this n |
 
-| type | in the 34 | sampled |
-|---|---|---|
-| relational | 14 | 8 |
-| refutation | 9 | 5 |
-| lookup | 6 | 4 |
-| open-directions | 5 | 3 |
+`eval/gold/annotator_b.score.txt` holds the full output.
 
-Proportional, deliberately — the opposite choice from `contradiction_audit.sample_pairs`,
-which uses equal-n because there the rare class was the one under suspicion. The cost is
-that `refutation_handling` is gradeable on only **5** rows (it is null wherever the gold
-encodes no contradiction), so its κ will not be comparable to the others and should not be
-reported as though it were. `gradeable_n` prints the per-criterion n for that reason.
+### `attribution` is not a judge problem, and 3.6c is closed for good
 
-**Blinding.** The sheet withholds the first grades, the judge's scores, and the retrieved
-evidence, and shuffles across strata. The evidence exclusion is not incidental: §3.1 records
-that the judge grades `attribution` with the context in its prompt while the human grades
-from the answer alone, so showing annotator B the evidence would measure that asymmetry
-rather than disagreement between readers. A test pins the invariant at the type level —
-`AnswerSample`'s fields *are* the contract, so a field that is not on it cannot reach the
-sheet.
+The grader reproduced only **5 of 20** attribution grades, and **6 of 20 moved by two points
+or more**. The distribution did not wobble — it relocated:
 
-**What is blocked, and what is not.** The tooling, the sample and the scoring are done and
-tested end-to-end. The labels are not something this repo can generate:
-
-| pass | who grades | what it settles |
-|---|---|---|
-| `--annotator second` | a different person | §10. The only pass that discharges it. |
-| `--annotator retest` | the original grader, blind, later | how stable the labels are — the human analogue of 3.6c's temperature finding, and a bound on every κ in §6. Two passes by one reader are not two readers. |
-| `--annotator model` | a different model, different prompt | bounds rather than settles, exactly as §8.2 says of its own audit |
-
-The original grader **cannot** be the second annotator; re-grading measures test–retest
-consistency, which is a different and separately useful number. `--annotator` is recorded in
-the sheet and echoed in the scoring output so a `model` run cannot be quietly reported as a
-second annotator.
-
-```bash
-python scripts/annotator_agreement.py <run> --sample > eval/gold/annotator_b.jsonl
-python scripts/annotator_agreement.py --show      # the sheet, one answer at a time
-python scripts/annotator_agreement.py <run> --score
+```
+pass A (Aug 7)   1: 5  2: 0  3: 8  4: 1  5: 6     mean 3.15
+pass B (Aug 9)   1: 0  2: 1  3: 1  4:11  5: 7     mean 4.20
 ```
 
-`eval/gold/annotator_b.jsonl` is committed with 20 rows and every `grade` null.
+Every one of pass A's five 1s came back 2, 3, 4, 4, 5. And the answers that moved furthest
+— `rel-t03` 1→4, `rel-t04` 1→4, `look-001` 1→5 — are precisely the handle-dense,
+coarsely-mapped answers, the ones where several sources are bundled behind one compound
+sentence.
+
+That is the *same axis* 3.6c spent three rubric versions oscillating on. `attribution` as
+specified admits two defensible readings:
+
+- **strict** — can a reader verify each individual claim against one individual source?
+  Bundled handles fail. (Pass A's reading, and what v2 encoded.)
+- **lenient** — is the mapping present and correct, whoever it covers? Bundling is fine.
+  (Pass B's reading, and roughly what v1 encoded.)
+
+The grader used one in August and the other two days later, on the same answers, without
+being aware of switching. So the criterion has no single target, and the judge's +0.30 is
+not a shortfall against the human — it *is* the human number. `κ = +0.29` self, `+0.30`
+judge: the instrument is as consistent with the grader as the grader is with themselves.
+
+**Consequence.** No rubric wording can close a gap that does not exist. `attribution` cannot
+be repaired by prompting; it must either be split into two separately-defined criteria
+(claim-level traceability vs. source correctness), each with its own anchors, or dropped.
+Until then it is reported as untrusted, and 3.6c is closed permanently rather than parked.
+
+The recall threat cuts the right way here. Two days' distance means partial recall was
+likely, and recall inflates agreement. `+0.29` survived that tailwind, which makes a low
+reading decisive in a way a high one would not have been.
+
+### `hedging_accuracy` fails for a different reason: the grader barely uses the scale
+
+Self-agreement is +0.39, but 10 of 20 grades are identical and the mean moved +0.15 — the
+disagreement is small in magnitude. The problem is variance:
+
+```
+pass A   1: 1  2: 0  3: 1  4:15  5: 3
+pass B   1: 0  2: 0  3: 3  4:12  5: 5
+```
+
+Three-quarters of answers get a 4. Quadratic-weighted κ measures agreement *beyond chance*,
+and where a grader concentrates on one value there is almost no signal for it to explain, so
+κ collapses even though the two passes are close. This is range restriction in the human
+rather than in the judge — the mirror image of what §6 diagnosed. A criterion that assigns
+the same score to three-quarters of the corpus is not discriminating anything, and rescaling
+cannot fix that either.
+
+### What survives, and why that is the useful half
+
+`coverage` and `synthesis` are confirmed, and confirmed in the strong form: the grader
+reproduces them (+0.81, +0.77, no grade moving by two points on either), *and* the judge
+agrees with both passes at similar levels. §6 certified them from one draw against one pass;
+they now hold across two human passes and a deterministic judge. Those are the two criteria
+3.5 may report.
+
+### Limits
+
+- **§10 stands.** One grader, twice, is not two graders. `--annotator second` remains
+  unexercised and the threat remains in the report.
+- **`refutation_handling` is undecidable at n=5.** Proportional sampling put 5 of the 9
+  contradiction-bearing queries in the sheet. Its +0.57 self-agreement sits alongside
+  ρ=+0.91, so the grader ranks those five consistently while the level moves — suggestive,
+  not usable. Settling it needs the full 9, and really needs more refutation queries than
+  the gold set contains.
+- **Test–retest is an upper bound on stability**, not an estimate, because of recall.
 
 ---
-
 ## 3.6b `ReproducibilityArtifact` routing — scoped, not started
 
 §7.2 attributes `code_url` 0-for-15 and `dataset_access` 0-for-14 to a prompt-routing gap.
