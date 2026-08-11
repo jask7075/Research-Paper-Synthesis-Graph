@@ -5,10 +5,10 @@ with its measurement, whether or not the measurement is the one the plan hoped f
 
 | # | item | status |
 |---|---|---|
-| 3.6a | contradiction pass v2 | **written and run; the ≥70% bar is unmeasurable — see below** |
+| 3.6a | contradiction pass v2 | **run; awaiting 60 human labels — the sheet is drawn** |
 | 3.6b | `ReproducibilityArtifact` routing | **closed: 3 faults found, 2 fixed; not applied to the corpus** |
 | 3.6c | `attribution` rubric | **closed: hypothesis refuted, instrument fixed** |
-| 3.6d | second annotator | **closed as test–retest: two criteria confirmed, two retired** |
+| 3.6d | second annotator | **closed. Inter-annotator agreement is out of scope permanently — see below** |
 
 **The two closed items answer each other.** 3.6c could not make the judge agree with the
 grader on `attribution` past +0.45. 3.6d measured why: the grader agrees with *themselves*
@@ -239,10 +239,37 @@ agrees with both passes at similar levels. §6 certified them from one draw agai
 they now hold across two human passes and a deterministic judge. Those are the two criteria
 3.5 may report.
 
-### Limits
+### §10 is permanent, not pending
 
-- **§10 stands.** One grader, twice, is not two graders. `--annotator second` remains
-  unexercised and the threat remains in the report.
+There is no second annotator and there will not be one: this is a single-person project.
+That converts §10's threat from an open action into a **standing limitation of the work**,
+and it should be written that way rather than deferred to a future iteration that cannot
+happen. Every calibrated criterion in this project is calibrated relative to one reader, and
+no amount of further engineering changes that.
+
+What that costs, precisely: `coverage` and `synthesis` are certified as *"the judge tracks
+this grader"*, not as *"the judge grades well"*. If the grader's standard on those two is
+idiosyncratic, the judge has learned an idiosyncrasy and nothing here would reveal it.
+
+What partly offsets it, and why the item was still worth running:
+
+- **Test–retest bounds the label noise**, which is the part of §10 that *is* reachable
+  alone. A criterion whose own author cannot reproduce it cannot be grader-independent
+  either, so a low retest κ is decisive evidence against a criterion regardless of how many
+  annotators exist. That is exactly what happened to `attribution` and `hedging_accuracy`,
+  and neither verdict needs a second reader to stand.
+- **The surviving two were confirmed the strong way** — stable across two human passes *and*
+  tracked by a deterministic judge across both. That is more evidence than §6 had, even if
+  it is not the evidence §10 asks for.
+- **`--annotator second` stays in the tool.** It costs nothing to keep and makes the missing
+  measurement explicit rather than invisible; if a reader is ever available, the sample and
+  the scoring are already built and the sheet is already drawn.
+
+The honest phrasing for the report is that inter-annotator agreement is **unmeasured and
+will remain so**, with test–retest reported in its place and labelled as the weaker
+substitute it is.
+
+### Other limits
 - **`refutation_handling` is undecidable at n=5.** Proportional sampling put 5 of the 9
   contradiction-bearing queries in the sheet. Its +0.57 self-agreement sits alongside
   ρ=+0.91, so the grader ranks those five consistently while the level moves — suggestive,
@@ -320,13 +347,41 @@ too. Two model labellers now disagree substantially on the positive class — th
 edge precision depends on — so 32.5% should be read as one labeller's figure, not as the
 pass's precision.
 
+### What unblocks it — and it is not the same blocker as 3.6d
+
+3.6d needs a **different** person, which a single-person project cannot supply. This needs
+**a** person, and the project has one. §8.2's sixty labels were a model's; a human pass is
+strictly better than what the reported 32.5% rests on, and it is the only remaining input.
+
+`eval/gold/contradiction_audit.v2.jsonl` holds a fresh stratified sample drawn from the v2
+verdicts — 20 `refutes`, 20 `undercuts`, 20 `neither`, seed 7, **zero overlap** with the
+sixty already labelled. The overlap matters: those twelve spurious `refutes` are now inside
+the v2 prompt, so scoring v2 on the pairs they came from would be testing on training data.
+
+```bash
+python scripts/audit_contradictions.py --show --cache contradiction_verdicts.v2.json --seed 7
+python scripts/audit_contradictions.py --score --out contradiction_audit.v2.jsonl
+```
+
+`--show` never displays the verdict, so the labelling stays blind.
+
+**What the result will and will not settle.** The sample is drawn from the 3,072 pairs v1
+accepted, so it measures v2's *precision* on that pool — the ≥70% bar directly — and says
+nothing about *recall* over the 13,893 pairs v1 rejected. A v2 that reaches 70% by rejecting
+everything borderline would look identical here. The `neither` stratum partly guards that: 20
+of the sample are pairs v2 rejected, so labels on those show how many real disagreements v2
+threw away relative to v1's accepted set.
+
+**A second, cheaper thing the same labelling buys.** Re-labelling the original sixty by hand
+would replace §8.2's model-labelled 32.5% with a human figure. Those pairs are contaminated
+for scoring *v2*, but not for characterising *v1*, whose prompt never contained them.
+
 ### Status
 
-The edges remain **unapplied** (`approved: false`), exactly as §8.2 left them. §4.3 stands
-unimproved. v2 is committed and runnable; what is missing is not code but ~60 human labels
-on a fresh stratified sample, which is the same blocker 3.6d hit from the other direction.
+Edges remain **unapplied** (`approved: false`), exactly as §8.2 left them, and §4.3 stands
+unimproved. v2 is committed and runnable.
 
-Cost: $0.63 — 3,072 adjudications plus 60 labeller-validation calls.
+Cost so far: $0.63 — 3,072 adjudications plus 60 labeller-validation calls.
 
 ---
 ## 3.6b `ReproducibilityArtifact` routing — measured; two of three causes fixed

@@ -51,16 +51,19 @@ def _nodes(settings) -> dict[str, dict]:
     return out
 
 
-def _adjudicated(settings) -> list[dict]:
+def _adjudicated(settings, cache_name: str = "contradiction_verdicts.json") -> list[dict]:
     """Rebuild the full pair list -- accepted and rejected -- from the verdict cache.
 
     The cache is keyed by `a_name␟b_name` and holds every pair including `neither`, which
     `contradictions.json` does not: it stores only accepted edges. Sampling the rejected
     class needs the cache.
     """
-    cache = json.loads(
-        (settings.paths.data_processed / "contradiction_verdicts.json").read_text()
-    )
+    cache = json.loads((settings.paths.data_processed / cache_name).read_text())
+    # v2 keys are "<version>\u241f<a_name>\u241f<b_name>"; v1's are unprefixed.
+    cache = {
+        (k.split("\u241f", 1)[1] if k.split("\u241f")[0] in ("v1", "v2") else k): v
+        for k, v in cache.items()
+    }
     by_name: dict[str, list[dict]] = {}
     for n in _nodes(settings).values():
         by_name.setdefault(n["name"], []).append(n)
@@ -96,12 +99,17 @@ def main() -> None:
     ap.add_argument("--label-with", default=None, metavar="MODEL",
                     help="label the sample blind with MODEL (use a different model than the "
                          "adjudicator); writes `human` so --score reads it")
+    ap.add_argument("--cache", default="contradiction_verdicts.json",
+                    help="verdict cache under data/processed to audit "
+                         "(contradiction_verdicts.v2.json for the v2 pass)")
+    ap.add_argument("--out", default=None,
+                    help="audit file under eval/gold; default contradiction_audit.jsonl")
     ap.add_argument("--validate-labeller", action="store_true",
                     help="score --label-with against the existing human labels first")
     args = ap.parse_args()
 
     settings = get_settings()
-    out_path = settings.paths.eval_gold / "contradiction_audit.jsonl"
+    out_path = settings.paths.eval_gold / (args.out or "contradiction_audit.jsonl")
 
     if args.score:
         if not out_path.exists():
@@ -115,7 +123,7 @@ def main() -> None:
         return
 
     samples = sample_pairs(
-        _adjudicated(settings), per_verdict=args.per_verdict, seed=args.seed
+        _adjudicated(settings, args.cache), per_verdict=args.per_verdict, seed=args.seed
     )
 
     if args.validate_labeller:
