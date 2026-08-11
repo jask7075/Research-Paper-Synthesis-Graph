@@ -5,7 +5,7 @@ with its measurement, whether or not the measurement is the one the plan hoped f
 
 | # | item | status |
 |---|---|---|
-| 3.6a | contradiction pass v2 | **run; awaiting 60 human labels — the sheet is drawn** |
+| 3.6a | contradiction pass v2 | **closed: v2 fails the bar and is worse than v1; §8.2 corroborated** |
 | 3.6b | `ReproducibilityArtifact` routing | **closed: 3 faults found, 2 fixed; not applied to the corpus** |
 | 3.6c | `attribution` rubric | **closed: hypothesis refuted, instrument fixed** |
 | 3.6d | second annotator | **closed. Inter-annotator agreement is out of scope permanently — see below** |
@@ -347,41 +347,70 @@ too. Two model labellers now disagree substantially on the positive class — th
 edge precision depends on — so 32.5% should be read as one labeller's figure, not as the
 pass's precision.
 
-### What unblocks it — and it is not the same blocker as 3.6d
+### Result: v2 fails the bar, and is strictly worse than v1
 
-3.6d needs a **different** person, which a single-person project cannot supply. This needs
-**a** person, and the project has one. §8.2's sixty labels were a model's; a human pass is
-strictly better than what the reported 32.5% rests on, and it is the only remaining input.
+Sixty fresh pairs from the v2 verdicts — 20/20/20, seed 7, zero overlap with the sixty
+behind §8.2 — labelled by hand, blind. The zero overlap matters: those twelve spurious
+`refutes` are inside the v2 prompt, so scoring on the pairs they came from would be testing
+on training data.
 
-`eval/gold/contradiction_audit.v2.jsonl` holds a fresh stratified sample drawn from the v2
-verdicts — 20 `refutes`, 20 `undercuts`, 20 `neither`, seed 7, **zero overlap** with the
-sixty already labelled. The overlap matters: those twelve spurious `refutes` are now inside
-the v2 prompt, so scoring v2 on the pairs they came from would be testing on training data.
+| | equal-n | population-weighted | real edges |
+|---|---|---|---|
+| v1 (§8.2) | 32.5% | 25.8% | ~792 of 3,072 |
+| **v2** | **32.5%** | **25.9%** | ~304 of 1,172 |
 
-```bash
-python scripts/audit_contradictions.py --show --cache contradiction_verdicts.v2.json --seed 7
-python scripts/audit_contradictions.py --score --out contradiction_audit.v2.jsonl
+**Edge precision did not move.** Not by a little — the stratum rates are identical, 8/20 of
+sampled `refutes` and 5/20 of sampled `undercuts` are real under both prompts. Against a
+≥70% bar, v2 is refuted.
+
+And the retention that looked promising was a loss. Of the 1,900 pairs v2 rejected from v1's
+accepted set, **6 of 20 sampled are real disagreements** — v1's own discard rate was 2 of 20.
+
+```
+real edges in v1's 3,072   ~874
+v2 keeps                   ~304      (35% of them)
+v2 discards                ~570      at no gain in precision
 ```
 
-`--show` never displays the verdict, so the labelling stays blind.
+So v2 rejects 62% of v1's edges roughly at random with respect to correctness, and slightly
+worse than random: it preferentially drops real ones. The worked negatives §8.2 prescribed —
+and which the plan called "a second route to §4.5" — do not work.
 
-**What the result will and will not settle.** The sample is drawn from the 3,072 pairs v1
-accepted, so it measures v2's *precision* on that pool — the ≥70% bar directly — and says
-nothing about *recall* over the 13,893 pairs v1 rejected. A v2 that reaches 70% by rejecting
-everything borderline would look identical here. The `neither` stratum partly guards that: 20
-of the sample are pairs v2 rejected, so labels on those show how many real disagreements v2
-threw away relative to v1's accepted set.
+### §8.2's 32.5% is corroborated, and my doubt about it was wrong
 
-**A second, cheaper thing the same labelling buys.** Re-labelling the original sixty by hand
-would replace §8.2's model-labelled 32.5% with a human figure. Those pairs are contaminated
-for scoring *v2*, but not for characterising *v1*, whose prompt never contained them.
+Earlier in this item the model labeller (`gpt-5.4-mini`) found 2 of 15 real disagreements
+that §8.2's labels called real, and I read that as widening the error bars on 32.5%. The
+human pass settles it the other way: on 60 *different* pairs a human independently finds 19
+disagreements (§8.2's labeller found 15 of 60) and reproduces both stratum rates exactly.
+**§8.2's model labeller was adequate and its 32.5% stands** — the outlier was the
+`gpt-5.4-mini` labeller, which is too conservative to audit anything. `--validate-labeller`
+is what caught it, and remains the reason not to trust a model labeller unchecked.
+
+### What this means beyond v2
+
+§8.2's design note predicted this. Contradictory claims are similar *by construction*, so
+similarity is purely a recall filter and **the model performs the entire discriminative
+step**. v2 tests whether that step improves when the model is shown exactly what its errors
+look like. It does not. Two prompts, one with a prose warning and one with seven worked
+categories drawn from labelled failures, land on the same 32.5%.
+
+The conclusion is about the approach, not the wording: pairwise claim adjudication at 0.90
+cosine yields ~26–32% edge precision on this corpus regardless of prompt, and prompt
+engineering is not the lever. Anything further needs a different mechanism — adjudicating
+with both papers' surrounding context rather than two sentences, or a model that can do the
+discriminative step at all.
 
 ### Status
 
-Edges remain **unapplied** (`approved: false`), exactly as §8.2 left them, and §4.3 stands
-unimproved. v2 is committed and runnable.
+Neither v1's nor v2's edges are applied (`approved: false`). §4.3 stands unimproved, and the
+**second route to §4.5 named in the Iteration 3 plan is closed** — which leaves 3.1's
+decomposition as the only remaining route, and raises what rides on it.
 
-Cost so far: $0.63 — 3,072 adjudications plus 60 labeller-validation calls.
+A reporting bug was fixed on the way out: `--score` read the accepted total from
+`contradictions.json` regardless of which cache it audited, so the v2 audit reported "of
+3,072 accepted" for a pass that accepted 1,172.
+
+Cost: $0.63 — 3,072 adjudications plus 60 labeller-validation calls. The labels were free.
 
 ---
 ## 3.6b `ReproducibilityArtifact` routing — measured; two of three causes fixed

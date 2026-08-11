@@ -115,10 +115,16 @@ def main() -> None:
         if not out_path.exists():
             raise SystemExit(f"no audit file at {out_path} -- run --sample first")
         rows = [json.loads(x) for x in out_path.read_text().splitlines() if x.strip()]
-        accepted = None
-        edges_path = settings.paths.data_processed / "contradictions.json"
-        if edges_path.exists():
-            accepted = len(json.loads(edges_path.read_text())["edges"])
+        # From the cache under audit, not from contradictions.json. Auditing the v2 cache
+        # while reading v1's edge file reported "of 3,072 accepted" for a pass that accepted
+        # 1,172 -- scaling a precision onto the wrong denominator.
+        accepted = sum(
+            1
+            for v in json.loads(
+                (settings.paths.data_processed / args.cache).read_text()
+            ).values()
+            if v.get("verdict") in ("refutes", "undercuts")
+        )
         print(summarize(precision(rows), accepted_total=accepted))
         return
 
