@@ -23,10 +23,25 @@ log = get_logger(__name__)
 
 
 class SystemOutput:
-    def __init__(self, text: str, cited_paper_ids: list[str], evidence: str) -> None:
+    """What every arm returns. `trace` is optional and empty for the static arms.
+
+    The static arms have no trajectory to report -- one retrieval, one synthesis -- so the
+    field defaults to empty rather than being required. `runner.py` writes it only when
+    present, which keeps `traces.jsonl` byte-identical for the Iteration 2 arms and lets 3.4
+    read the agentic arm's plan, per-sub-question retrievals and critique from the same file.
+    """
+
+    def __init__(
+        self,
+        text: str,
+        cited_paper_ids: list[str],
+        evidence: str,
+        trace: dict | None = None,
+    ) -> None:
         self.text = text
         self.cited_paper_ids = cited_paper_ids
         self.evidence = evidence
+        self.trace = trace or {}
 
 
 class System(Protocol):

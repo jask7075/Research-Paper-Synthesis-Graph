@@ -86,17 +86,17 @@ def run_system(
             # measures the asymmetry rather than the judge: on the first calibrated
             # run that criterion came back at kappa=+0.02, rho=+0.04, p=0.92 — no
             # relationship at all — while the other four correlated strongly.
-            traces_fh.write(
-                json.dumps(
-                    {
-                        "qid": g.qid,
-                        "system": system.name,
-                        "evidence": out.evidence,
-                        "evidence_chars": len(out.evidence),
-                    }
-                )
-                + "\n"
-            )
+            trace: dict = {
+                "qid": g.qid,
+                "system": system.name,
+                "evidence": out.evidence,
+                "evidence_chars": len(out.evidence),
+            }
+            # Only when the arm has one, so the static arms' traces stay byte-identical to
+            # Iteration 2's and remain directly comparable.
+            if getattr(out, "trace", None):
+                trace["trajectory"] = out.trace
+            traces_fh.write(json.dumps(trace) + "\n")
 
             violations = check_answer(answer, corpus_ids=corpus_ids or None)
             for v in violations:
