@@ -259,6 +259,22 @@ changes instrument and measurement together.
 **Retrieval tuning.** `top_k`, hops, seed count and node cap are measured and locked
 (§3.2, §4.5). Touching them confounds 3.5, which is the only reason this iteration exists.
 
+**Corpus re-extraction — including 3.6b's fix.** The prompt and schema changes are committed;
+the 271-paper run is deferred until after 3.5, deliberately.
+
+The obvious reason is that re-extraction rebuilds the graph every typed arm reads, so 3.5's
+static baselines (`vector_fulltext` 0.456, `typed_graph_chunks` 0.377) would stop describing
+the corpus they were measured on, and all four arms would have to be re-run to stay
+comparable. The sharper reason is that **this holds even if the prompt had not changed at
+all**: extraction is sampled at the provider default, and two identical-prompt runs over the
+same 21 papers differ on 9 of 147 field outcomes. Any re-extraction moves the substrate.
+There is no such thing as re-extracting to pick up one fix.
+
+So it happens once, after 3.5, with every arm re-run together — not as a side effect of a
+maintenance item. Until then §7's `code_url` 0-for-15 stands as the *reported* figure, with
+the fix recorded as measured-but-unapplied in
+[iteration-3-maintenance.md](iteration-3-maintenance.md).
+
 ---
 
 ## Order

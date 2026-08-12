@@ -21,6 +21,40 @@ rubric can pass it.
 
 ---
 
+## Two decisions taken on this track
+
+**The Iteration 2 report is not amended.** §6 continues to certify `refutation_handling` at
++0.65 and §10 continues to describe the single-grader threat as an open one. Both are
+superseded by findings here, and neither is edited.
+
+The reason is that the Iteration 3 plan opens *"Iteration 2 is closed; its result and every
+number cited here are in iteration-2-report.md"* and then cites those numbers to justify what
+Iteration 3 does. Editing them in place would retroactively change what the plan refers to
+and erase the record of what was known when the decisions were made — a report that silently
+updates itself cannot be audited. The corrections are carried into the **Iteration 3 report**
+instead, where they belong: as findings of this iteration, with the superseded figures shown
+next to them.
+
+What the Iteration 3 report must carry:
+
+| Iteration 2 claim | status | established by |
+|---|---|---|
+| §6 `refutation_handling` κ=+0.65, **trusted** | **superseded** — +0.44, p=0.185 on a deterministic judge | 3.6c |
+| §6's table generally | every figure is one draw from a temperature-1.0 judge; spreads to 0.25 | 3.6c |
+| §6 *"requires a rubric with anchored examples… not rescaling"* | **refuted** — the unanchored original beats both rewrites | 3.6c |
+| §10 *"no inter-annotator agreement measure"* | **permanent**, and now quantified by test–retest | 3.6d |
+| §10 *"two of five fail calibration"* | four of five on a deterministic judge; survivors differ by gold set | 3.6c/3.6d |
+| §10 *"§8.2 was audited by a model, not a human"* | **strengthened** — a human audit of 60 fresh pairs reproduces 32.5% | 3.6a |
+| §7.2 `code_url` 0-for-15 as a routing gap | three faults, not one; fixed and measured, **not applied** | 3.6b |
+
+**The corpus re-extraction waits for 3.5.** See *Not in this iteration* in the plan. The
+short version: extraction is sampled at the provider default and two identical-prompt runs
+differ on 9 of 147 field outcomes, so any re-extraction moves the substrate whether or not a
+prompt changed. There is no re-extracting to pick up one fix — it happens once, after 3.5,
+with every arm re-run together.
+
+---
+
 ## Reporting set: the active 10, with the 34 beside it
 
 **Calibration is reported on `queries.jsonl` — the 10 thesis queries — because those are the
