@@ -54,6 +54,23 @@ adjusting an agent until 34 queries move. So:
 **3.5 is scored on the 34-query set, once.** The 10-query set is a development set. Prompt
 and planner tuning happen there and are frozen before 3.5 runs.
 
+**Which metric is read on which set — fixed here, before 3.5 runs.** The maintenance track
+established that the two gold sets disagree about which judged criteria pass, so "the gold
+set" is no longer a single answer. It is now a per-metric decision:
+
+| what | set | why |
+|---|---|---|
+| deterministic metrics — the headline | **34** | judge-independent by construction, and §4.1 puts a ±0.10 noise floor on n=10 where the top two arms differ by 0.034. Ten queries cannot separate the arms. |
+| judged criteria in 3.5 | **`coverage` only** | the one criterion certified on *both* sets (+0.76 on the 10, +0.76 on the 34, +0.72 on the other 24), so the set mismatch cannot bite |
+| judge calibration | **10 primary, 34 alongside** | the 10 are what the thesis reports; the 34 is printed beside every figure because the sets diverge |
+| 3.1 development | 10 | unchanged — frozen before 3.5 |
+
+The rule this encodes: **a judge certified on one set is not certified on the other.**
+`synthesis` scores +0.38 on the 10 and +0.77 on the 34, `attribution` +0.79 and +0.45, so
+certifying on the 10 and scoring on the 34 would be incoherent in either direction.
+`coverage` is the only criterion indifferent to the choice, which is precisely why it is the
+only judged criterion 3.5 may report.
+
 ---
 
 ## 3.1 Agentic planner–critic loop
@@ -156,16 +173,32 @@ each produced, and what the critique changed.
   either the trajectory measures are wrong or the plan does not matter, and both are worth
   knowing.
 
-**Discipline from Iteration 2:** any judge-scored trajectory criterion is untrusted until
-calibrated against hand grades. §6 has two of five criteria failing calibration; a new
-metric family starts in the same position, not exempt from it.
+**Discipline from Iteration 2, hardened by 3.6c/3.6d:** any judge-scored trajectory criterion
+is untrusted until calibrated against hand grades. §6 reported two of five failing; on a
+deterministic judge it is four of five, and the survivors differ by gold set. A new metric
+family starts untrusted and inherits three rules:
+
+- **temperature 0.** Nothing in the project pinned it before 3.6c, and per-criterion κ
+  spreads reached 0.25 against a 0.26 gap to the trust bar. A criterion that disagrees with
+  itself cannot agree with a grader.
+- **certified on the worst sample, not one draw.** `calibrate_judge.py --repeats` enforces
+  this; a single draw was enough to certify `refutation_handling` at +0.65 and to put it at
+  +0.43 on the next.
+- **checked against the grader's own self-agreement.** 3.6d found `attribution` at +0.79 on
+  the active 10 while the grader reproduces those labels at +0.19. A judge that agrees with
+  one sitting better than the grader agrees with themselves has fitted a sitting. Any new
+  criterion needs its human ceiling measured before its κ means anything.
 
 ---
 
 ## 3.5 Agentic vs static on the same gold set — **the deliverable**
 
 The comparison everything above serves. All arms, 34 queries, unchanged metrics, reported
-by query type.
+by query type. Deterministic metrics carry the headline; `coverage` is the only judged
+criterion that may appear (see *Stated before measuring*). `attribution`,
+`hedging_accuracy` and `refutation_handling` must not be reported across arms — the first two
+are at or below the grader's own self-agreement, and the third is uncalibrated at n=9 on the
+34 and unmeasurable at n=3 on the 10.
 
 | arm | source |
 |---|---|
@@ -189,9 +222,21 @@ found the honest answer was *nothing changed*.
 
 ---
 
-## 3.6 Maintenance track — Iteration 2 carry-forwards
+## 3.6 Maintenance track — **closed**; see [iteration-3-maintenance.md](iteration-3-maintenance.md)
 
-Independent of the hypothesis, run in parallel, each already scoped by a measurement.
+All four ran. Three of four hypotheses are refuted, and in every item the binding constraint
+turned out to be the measuring instrument rather than the thing being measured — judge
+temperature, extraction temperature, the `DatasetAccess` enum, the audit labeller, and the
+grader's own stability.
+
+| # | outcome | consequence for this iteration |
+|---|---|---|
+| 3.6a | **refuted.** v2 holds edge precision at 32.5% and discards ~65% of the real edges. §8.2's figure is corroborated by a human audit of 60 fresh pairs | **the second route to §4.5 is closed** — 3.1's decomposition is now the only one, which raises what rides on it |
+| 3.6b | **partly confirmed.** Three faults, not one; `code_url` 0→3, `dataset_access` 0→3 | fix committed, corpus re-extraction *not* run — it rebuilds the substrate every arm reads and must be decided alongside 3.5 |
+| 3.6c | **refuted.** The original rubric beats both rewrites; the judge had been sampled at temperature 1.0 throughout | only `coverage` is certified for cross-arm use; `refutation_handling` loses its §6 certification |
+| 3.6d | **closed permanently.** No second annotator exists; run as test–retest | §10's single-grader threat is a standing limitation, not a pending action |
+
+The original scoping is kept below for the record.
 
 | # | item | why |
 |---|---|---|
