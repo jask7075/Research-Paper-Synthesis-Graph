@@ -7,8 +7,12 @@ with its measurement, whether or not the measurement is the one the plan hoped f
 |---|---|---|
 | 3.6a | contradiction pass v2 | **closed: v2 fails the bar and is worse than v1; §8.2 corroborated** |
 | 3.6b | `ReproducibilityArtifact` routing | **closed: 3 faults found, 2 fixed; not applied to the corpus** |
-| 3.6c | `attribution` rubric | **closed: hypothesis refuted, instrument fixed** |
+| 3.6c | `attribution` rubric | **closed: hypothesis refuted on both gold sets, instrument fixed** |
 | 3.6d | second annotator | **closed. Inter-annotator agreement is out of scope permanently — see below** |
+
+**Calibration is reported on the active 10** (`queries.jsonl`), with the 34 shown beside every
+figure — the two sets disagree about which criteria pass, so neither travels alone. See
+*Reporting set* below. Only `coverage` is certified for cross-arm use on either set.
 
 **The two closed items answer each other.** 3.6c could not make the judge agree with the
 grader on `attribution` past +0.45. 3.6d measured why: the grader agrees with *themselves*
@@ -17,7 +21,71 @@ rubric can pass it.
 
 ---
 
+## Reporting set: the active 10, with the 34 beside it
+
+**Calibration is reported on `queries.jsonl` — the 10 thesis queries — because those are the
+queries the thesis reports.** The 34 are shown alongside every figure rather than dropped,
+for a reason that is specific to this corpus rather than general caution: the two sets do not
+merely differ in power, **they disagree about which criteria pass, in opposite directions.**
+
+Same 34 stored answers, one v1 rubric, judge at temperature 0:
+
+| criterion | the active 10 | the other 24 | all 34 |
+|---|---|---|---|
+| `coverage` | +0.76 | +0.72 | +0.76 |
+| `attribution` | **+0.79** | **+0.30** | +0.45 |
+| `hedging_accuracy` | +0.26 | +0.16 | +0.25 |
+| `refutation_handling` | +0.50 (n=3) | +0.43 | +0.44 |
+| `synthesis` | **+0.38** | **+0.77** | +0.63 |
+
+The 10 are an unusually easy subset for `attribution` and an unusually hard one for
+`synthesis`. Only `coverage` is indifferent to the choice. So a single κ with no denominator
+beside it would let either subset be reported as the truth, and `calibrate_judge.py` now
+prints both by construction — `--gold` selects the calibration set, and the complement is
+always shown.
+
+**Stated plainly, because the order of events matters:** the divergence above was measured
+*before* the active 10 were adopted as the reporting set, and adopting them raises
+`attribution` from +0.45 to +0.79. That is a defensible choice — the judge should be
+trustworthy on the queries actually reported — but it is a *choice*, not a finding, and it
+must not be read as evidence that `attribution` works.
+
+### What is certified on the active 10
+
+| criterion | judge κ | grader vs self | verdict |
+|---|---|---|---|
+| `coverage` | **+0.76** | +0.66 | **certified** |
+| `attribution` | +0.79 | **+0.19** | **not certified** — see below |
+| `synthesis` | +0.38 | +0.60 | untrusted on this set |
+| `hedging_accuracy` | +0.26 | +0.38 | untrusted |
+| `refutation_handling` | +0.50 | +0.67 | **unmeasurable — n=3** |
+
+**`attribution` is the trap, and the retest is what springs it.** Its +0.79 rests on labels
+the grader reproduces at **+0.19** on those same queries (n=7), while the judge tracks the
+first pass at +0.83. A judge agreeing with one sitting far better than the grader agrees with
+themselves has not learned the criterion; it has fitted one sitting. This is exactly
+`ceiling()`'s *"judge tracks one grader markedly better"* case, and it means the certification
+would be an artefact. 3.6c's verdict therefore stands on the 10 as well as on the 34 —
+reached by a different route, and, if anything, more sharply.
+
+**`refutation_handling` is the real cost of the smaller set.** Only 3 of the 10 carry a known
+contradiction, so n=3 — which is precisely what Iteration 1 recorded as *unmeasured*. On the
+active set this criterion cannot be calibrated at all, and no amount of judge work changes
+that; it needs more refutation queries in the gold set.
+
+**Net: `coverage` alone is certified for cross-arm reporting** — the same bottom line as the
+34, arrived at differently. On the 34, `synthesis` survives and `attribution` fails on judge
+disagreement. On the 10, `synthesis` fails and `attribution` fails on label instability. The
+agreement between two different routes is the strongest thing here.
+
+
+---
+
 ## 3.6c `attribution` rubric — refuted, and a larger defect found underneath
+
+> Figures in this section are on the 34 hand-graded answers, which is the set the item was
+> run against. The verdict is unchanged on the active 10 — see *Reporting set* above, where
+> `attribution`'s apparent +0.79 is shown to rest on labels the grader reproduces at +0.19.
 
 **What the plan asked for.** §6 put `attribution` at κ=+0.34 and diagnosed range
 restriction rather than bias: the judge never returned 5 and almost never 1, against a
@@ -153,6 +221,11 @@ Cost: $6.75, 272 judge calls, `gpt-5.4-mini`.
 ---
 
 ## 3.6d Second annotator — run as test–retest; two criteria confirmed, two retired
+
+> Figures below are over the 20 retested answers. Restricted to the 7 that are in the active
+> 10: `coverage` +0.66, `synthesis` +0.60, `hedging_accuracy` +0.38, `attribution` **+0.19**,
+> `refutation_handling` n=2. The direction is identical and `attribution` is worse, which is
+> what blocks its certification on the active set.
 
 **What was actually run, and what it can therefore claim.** This is a one-person project, so
 the second pass was graded by the original annotator, blind, two days later. That is
