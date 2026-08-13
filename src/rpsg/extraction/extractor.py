@@ -107,6 +107,11 @@ class Extractor:
         self._min_node_confidence = settings.extraction.min_node_confidence
         self._min_edge_confidence = settings.extraction.min_edge_confidence
         self._max_workers = settings.extraction.max_workers
+        # Pinned. Re-extracting the same 21 papers twice with an identical prompt gave 9 of
+        # 147 differing field outcomes, so an unpinned corpus cannot be rebuilt to itself --
+        # the same defect 3.6c found in the judge, on the layer the entire graph is built
+        # from. Temperature 0 is not bit-determinism, but it removes the sampling component.
+        self._temperature = settings.models.extraction_temperature
 
     def _call(self, user_prompt: str) -> dict:
         # Structured outputs guarantee a schema-valid object.
@@ -116,6 +121,7 @@ class Extractor:
             schema=EXTRACTION_JSON_SCHEMA,
             schema_name="extraction",
             max_tokens=self._max_tokens,
+            temperature=self._temperature,
         )
 
     def extract_section(self, paper_id: str, section: Section) -> ExtractionResult:

@@ -28,6 +28,20 @@ trace so 3.5 can state the cost multiple beside the score.
 retrieval on the original query -- i.e. to `vector_fulltext` -- and marks the trace. A silent
 degradation would let a broken planner score as a working one, and 3.4 reads
 `planner_failed` to exclude those queries from trajectory claims.
+
+**It always retrieves on the original query first (the anchor).** Measured before this was
+added: two runs of functionally identical code scored `must_cite_recall` 0.567 and 0.333 on
+the same 10 queries. The cause is structural rather than a bug. `gpt-5.4-nano` does not
+return identical text at `temperature=0.0` -- three draws of one plan gave three distinct
+wordings -- and in this arm the planner's output *is* the retrieval query, so a reworded
+sub-question embeds differently, reaches different chunks, and changes which papers can be
+cited at all. A static arm embeds a fixed gold query and absorbs that noise; this arm
+amplifies it.
+
+The anchor puts a deterministic retrieval under every query, so the plan moves the margin
+rather than the whole evidence set, and `_merge` keeps it first so the low `P1`-handles are
+stable too. It is a design fix and not a score-chasing tweak: it was adopted on whether it
+narrows the run-to-run spread, not on whether it raises the mean.
 """
 
 from __future__ import annotations
@@ -162,6 +176,7 @@ class Trajectory:
     retrievals_refused: int = 0
     planner_failed: bool = False
     critique_ran: bool = False
+    anchor_used: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -178,6 +193,7 @@ class Trajectory:
             "retrievals_refused": self.retrievals_refused,
             "planner_failed": self.planner_failed,
             "critique_ran": self.critique_ran,
+            "anchor_used": self.anchor_used,
             # Derived here rather than in 3.4 so the definition lives with the data: did the
             # second pass actually reach a paper the first did not?
             "critique_added_papers": sorted(
@@ -208,6 +224,7 @@ class AgenticSystem:
         graph_store: Any = None,
         critique: bool = True,
         stage_writes: bool = False,
+        anchor: bool = True,
     ) -> None:
         settings = get_settings()
         self.name = name
@@ -225,6 +242,10 @@ class AgenticSystem:
         # The ablation §3.5 requires: without it, "the loop helps" cannot be separated from
         # "planning helps".
         self._critique = critique
+        # See the module docstring: a deterministic retrieval on the original query, under
+        # every plan. `anchor=False` is the ablation that recovers the pre-3.5 behaviour and
+        # is how the spread reduction was measured.
+        self._anchor = anchor
         # §3.2. Off by default: 3.5's acceptance is that the scored run is unaffected, and
         # the cleanest way to guarantee that is for the deliverable not to write at all.
         # The equality is demonstrated by running both ways, not assumed.
@@ -311,9 +332,10 @@ class AgenticSystem:
         if not subs:
             traj.planner_failed = True
             return [query]
-        # Cap at the budget minus one, so the critique always has a retrieval left to spend.
-        # A plan that consumed the whole budget would make the loop a fan-out, not a loop.
-        return subs[: max(1, self._max_retrievals - 1)]
+        # Leave room for the critique, and for the anchor when it is enabled. A plan that
+        # consumed the whole budget would make the loop a fan-out rather than a loop.
+        reserved = 1 + (1 if self._anchor else 0)
+        return subs[: max(1, self._max_retrievals - reserved)]
 
     # ---- retrieval --------------------------------------------------------------
 
@@ -351,6 +373,16 @@ class AgenticSystem:
         traj.sub_questions = subs
 
         batches: list[list[SearchHit]] = []
+        # The anchor: one deterministic retrieval on the question as asked, before any
+        # generated text is involved. Spent from the same budget, so the arm is not handed a
+        # free extra retrieval the static arms do not get.
+        if self._anchor:
+            try:
+                batches.append(self._retrieve(query, budget))
+                traj.anchor_used = True
+            except BudgetExhausted:
+                log.warning("budget exhausted before the anchor retrieval")
+
         for sub in subs:
             try:
                 hits = self._retrieve(sub, budget)

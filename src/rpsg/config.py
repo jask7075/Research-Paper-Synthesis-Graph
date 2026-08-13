@@ -41,6 +41,13 @@ class Models(BaseModel):
     extraction_model: str = "gpt-5.4-nano"
     judge_model: str = "gpt-5.4-mini"
     synthesis_model: str = "gpt-5.4-mini"
+    #: Sampling temperature for extraction. `None` restores the provider default, which is
+    #: what Iterations 1 and 2 ran on -- and re-extracting the 21 repro_gold papers twice
+    #: with an identical prompt showed the cost: 9 of 147 field outcomes differed between
+    #: runs. That is the same defect 3.6c found in the judge, on the layer the whole graph
+    #: is built from, and it makes a corpus rebuild unreproducible. Pinned before the
+    #: Iteration 3 re-extraction so that rebuild is the last one needed.
+    extraction_temperature: float | None = 0.0
     local_inference_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
     #: Base URL of an OpenAI-compatible server, e.g. "http://localhost:8000/v1".
     #:

@@ -120,19 +120,37 @@ def test_an_empty_plan_is_treated_as_a_failure_not_as_zero_work(monkeypatch) -> 
     assert traj.planner_failed is True
 
 
-def test_the_plan_leaves_a_retrieval_for_the_critique(monkeypatch) -> None:
-    """A plan that consumed the whole budget would make this a fan-out, not a loop."""
-    sys_ = _system(max_retrievals=3)
+class _Greedy:
+    def json(self, **kw):  # noqa: ANN003, ANN201
+        return {"sub_questions": [f"s{i}" for i in range(5)], "reasoning": "r"}
+
+
+def test_the_plan_reserves_a_retrieval_for_the_critique_and_the_anchor(monkeypatch) -> None:
+    """A plan that consumed the whole budget would make this a fan-out, not a loop — and
+    with the anchor on it must also leave room for the deterministic retrieval."""
+    sys_ = _system(max_retrievals=4)
     monkeypatch.setattr(sys_, "_graph_hints", lambda q: [])
-
-    class _Greedy:
-        def json(self, **kw):  # noqa: ANN003, ANN201
-            return {"sub_questions": [f"s{i}" for i in range(5)], "reasoning": "r"}
-
     sys_._planner = _Greedy()
     traj = Trajectory(query="q")
-    assert len(sys_._plan("q", traj)) == 2  # max_retrievals - 1
+    assert len(sys_._plan("q", traj)) == 2  # 4 - (critique + anchor)
     assert traj.planner_failed is False
+
+
+def test_without_the_anchor_the_plan_reclaims_that_retrieval(monkeypatch) -> None:
+    sys_ = _system(max_retrievals=4, anchor=False)
+    monkeypatch.setattr(sys_, "_graph_hints", lambda q: [])
+    sys_._planner = _Greedy()
+    assert len(sys_._plan("q", Trajectory(query="q"))) == 3  # 4 - critique only
+
+
+def test_the_anchor_is_on_by_default_and_spends_from_the_same_budget() -> None:
+    """Not a free extra retrieval: the arm must not be handed evidence the static arms
+    cannot buy, or a win becomes an evidence-volume effect."""
+    import inspect
+
+    from rpsg.retrieval.agentic import AgenticSystem
+
+    assert inspect.signature(AgenticSystem.__init__).parameters["anchor"].default is True
 
 
 # ---- merging ----------------------------------------------------------------------
