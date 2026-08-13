@@ -148,6 +148,36 @@ quality matters least.
 **Acceptance:** a `--local` flag routes chat calls to vLLM; a 10-query run completes; the
 cost and latency delta is recorded. Explicitly *not* required: matching hosted quality.
 
+### Status: kept as specified, deferred until CUDA hardware is available
+
+**The stated justification is refuted, and the item is kept anyway** — deliberately, because
+the justification was never the only reason for it.
+
+*Refuted:* this section assumed a loop "issuing 5–10 calls per query" and an arithmetic
+problem to solve. 3.1 measures **3 calls per query** (planner, critique, synthesis) at
+**$0.026/query**; 3.5 projects to roughly **$4**, against ~$10 for the whole iteration to
+date. There is no affordability problem for local inference to fix, and this section should
+not claim there is.
+
+*Infeasible here:* `Qwen/Qwen2.5-14B-Instruct-AWQ` needs AWQ kernels, which are CUDA-only,
+and vLLM has no production Metal backend. The development machine is Apple Silicon. This is
+a hardware constraint, not a scheduling one.
+
+*Kept because the goal outlives the justification:* the acceptance criterion is a
+**portability** claim — that the system runs without a hosted API. That is a legitimate
+property for a research system to demonstrate and it is not addressed by anything else in
+this iteration. Descoping it would quietly drop the claim rather than test it.
+
+*Not on 3.5's path either way.* This section already required that 3.5 run both arms on one
+model or the comparison is void, so 3.3 could never have contributed to the deliverable.
+
+**Deferred to CUDA hardware.** A cheaper substitute exists and is recorded rather than taken:
+`OpenAIChatClient` constructs its client with no `base_url`, so adding one would route to any
+OpenAI-compatible local server without committing to the vLLM/AWQ stack. That would satisfy
+the portability intent on current hardware. It is not being done, because the acceptance
+criterion above names vLLM specifically and substituting the stack while keeping the
+criterion's wording would be reporting a different experiment under its name.
+
 ---
 
 ## 3.4 Trajectory eval — scoring the plan, not the answer
