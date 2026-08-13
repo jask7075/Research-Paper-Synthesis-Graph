@@ -42,6 +42,17 @@ class Models(BaseModel):
     judge_model: str = "gpt-5.4-mini"
     synthesis_model: str = "gpt-5.4-mini"
     local_inference_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
+    #: Base URL of an OpenAI-compatible server, e.g. "http://localhost:8000/v1".
+    #:
+    #: vLLM serves the OpenAI chat-completions API, so §3.3's "route chat calls to vLLM" is
+    #: exactly "point an OpenAI client at a different base URL". The plumbing lives here
+    #: rather than waiting with the rest of 3.3 because it is required whichever hardware
+    #: eventually serves the model, and it touches nothing 3.5 measures.
+    #:
+    #: Wired and unexercised: the model above needs ~8.5GB in 4-bit and CUDA-only AWQ
+    #: kernels, while the development machine is an 8GB M2 where Metal caps the usable
+    #: working set near 5.3GB. 3.3's run waits for hardware, not for code.
+    local_inference_base_url: str | None = None
     #: Sampling temperature for the judge, and for the judge only. `None` restores the
     #: provider default, which is what Iteration 1 and 2 ran on: nothing set a temperature
     #: anywhere, so every reported kappa was computed from temperature-1.0 samples. Judging

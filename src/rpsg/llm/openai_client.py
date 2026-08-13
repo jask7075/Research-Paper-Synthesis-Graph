@@ -26,13 +26,21 @@ log = get_logger(__name__)
 
 
 class OpenAIChatClient(ChatClient):
-    def __init__(self, model: str) -> None:
+    def __init__(self, model: str, base_url: str | None = None) -> None:
         from openai import OpenAI
 
         settings = get_settings()
-        if not settings.openai_api_key:
-            raise RuntimeError("OPENAI_API_KEY is not set (see .env.example).")
-        self._client = OpenAI(api_key=settings.openai_api_key)
+        # A local OpenAI-compatible server (vLLM, Ollama, llama.cpp) authenticates nothing,
+        # so requiring a real key would make §3.3 impossible to run without one. The check
+        # still applies to the hosted API, where a missing key is a configuration error
+        # worth failing loudly on.
+        if base_url:
+            self._client = OpenAI(api_key=settings.openai_api_key or "local", base_url=base_url)
+        else:
+            if not settings.openai_api_key:
+                raise RuntimeError("OPENAI_API_KEY is not set (see .env.example).")
+            self._client = OpenAI(api_key=settings.openai_api_key)
+        self.base_url = base_url
         self.model = model
 
     def _complete(
