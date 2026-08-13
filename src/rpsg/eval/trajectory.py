@@ -216,6 +216,20 @@ def decomposition_specificity(
     run this returns 0.276 against that 0.100 (8 of 29 facets, binomial p ~ 0.007), so it
     does discriminate.
 
+    **It is a diagnostic, not a headline, and comparing it ACROSS query types is invalid.**
+    The rival pool decides both the score and the chance rate, and neither is constant by
+    type. Relational queries are near-uniformly *"X, and what limits each"* (§4.5), so a
+    relational plan competes against near-duplicates in form: scored against all nine rivals
+    relational reads 0.083, against the six non-relational ones 0.167 -- but chance moves
+    from 0.100 to 0.143 at the same time, so it sits near chance either way. Lookup reads
+    0.600 against both pools because it has one same-type rival. The ordering is stable and
+    the magnitudes are not comparable.
+
+    Use it to compare *arms on the same queries* -- agentic against agentic-no-critique,
+    where the rival pool is identical -- never to compare query types within one arm. 3.5
+    reports retrieval efficiency and critique usefulness as its trajectory headline; this
+    and absolute coverage are reported as diagnostics with their limits attached.
+
     **Read it as specificity, not as coverage.** 0.276 does not mean 27.6% of facets were
     addressed; it means 27.6% were addressed in a way that distinguishes this plan from a
     plan written for a different question. A plan can address a facet in terms so generic
