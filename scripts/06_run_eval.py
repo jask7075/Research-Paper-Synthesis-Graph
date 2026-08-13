@@ -45,6 +45,10 @@ def main() -> None:
                     help="agentic arms: hard ceiling on retrievals per query")
     ap.add_argument("--no-graph-hints", action="store_true",
                     help="agentic arms: plan without consulting the typed graph")
+    ap.add_argument("--stage-writes", action="store_true",
+                    help="agentic arms: persist the decomposition as STAGED (§3.2). Off for "
+                         "3.5's scored run — the deliverable must not write to the graph "
+                         "it is measured against")
     args = ap.parse_args()
 
     settings = get_settings()
@@ -76,6 +80,7 @@ def main() -> None:
                 None if args.no_graph_hints else KuzuGraphStore(str(settings.paths.kuzu_db))
             ),
             critique=not args.system.endswith("_no_critique"),
+            stage_writes=args.stage_writes,
             **kwargs,
         )
     elif args.system.startswith("citation_graph"):

@@ -26,6 +26,7 @@ import json
 from typing import Any
 
 from rpsg.config import get_settings
+from rpsg.extraction.schema import SourceLayer
 from rpsg.llm import get_chat_client
 from rpsg.logging import get_logger
 from rpsg.retrieval.baselines import _SYNTH_SYSTEM, SystemOutput, VectorRAGSystem
@@ -126,9 +127,11 @@ class TypedGraphSystem:
         import numpy as np
 
         rows = self._store.query(
-            "MATCH (e:Entity) WHERE e.type IN $types RETURN e.id AS id, e.name AS name, "
+            # CURATED only -- see the note in `_expand`.
+            "MATCH (e:Entity) WHERE e.type IN $types AND e.source_layer = $curated "
+            "RETURN e.id AS id, e.name AS name, "
             "e.type AS type, e.attrs AS attrs, e.evidence AS evidence",
-            {"types": list(_SEED_TYPES)},
+            {"types": list(_SEED_TYPES), "curated": SourceLayer.CURATED.value},
         )
         self._names = [r for r in rows if (r.get("name") or "").strip()]
         vecs = np.asarray(
@@ -166,11 +169,18 @@ class TypedGraphSystem:
                 # Ordered by the returned alias, not `r.confidence`: after RETURN DISTINCT
                 # the relationship variable is out of scope and Kuzu raises a binder error.
                 # Highest-confidence edges first, so `max_nodes` truncates the weakest.
+                # CURATED only. `stores/base.py` states the invariant -- metrics query
+                # CURATED, the agent may write STAGED at query time -- but nothing enforced
+                # it, and it held only because nothing had ever written a STAGED node. 3.2
+                # writes them, so an unfiltered traversal would let an agent raise its own
+                # score by writing to the graph, which is the self-grading the layer exists
+                # to prevent.
                 "MATCH (a:Entity)-[r:REL]-(b:Entity) WHERE a.id IN $ids "
+                "AND b.source_layer = $curated AND r.source_layer = $curated "
                 "RETURN DISTINCT b.id AS id, b.name AS name, b.type AS type, "
                 "b.attrs AS attrs, b.evidence AS evidence, r.type AS via, "
                 "r.confidence AS confidence ORDER BY confidence DESC",
-                {"ids": frontier},
+                {"ids": frontier, "curated": SourceLayer.CURATED.value},
             )
             frontier = []
             for row in rows:

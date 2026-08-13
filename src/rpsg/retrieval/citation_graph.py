@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Any
 
 from rpsg.config import get_settings
+from rpsg.extraction.schema import SourceLayer
 from rpsg.llm import get_chat_client
 from rpsg.logging import get_logger
 from rpsg.retrieval.baselines import _SYNTH_SYSTEM, SystemOutput, VectorRAGSystem
@@ -99,7 +100,10 @@ class CitationGraphSystem:
         import numpy as np
 
         rows = self._store.query(
-            "MATCH (e:Entity) WHERE e.type = 'Paper' RETURN e.id AS id, e.name AS name"
+            # CURATED only -- the layer invariant, now enforced rather than assumed.
+            "MATCH (e:Entity) WHERE e.type = 'Paper' AND e.source_layer = $curated "
+            "RETURN e.id AS id, e.name AS name",
+            {"curated": SourceLayer.CURATED.value},
         )
         self._papers = [r for r in rows if (r.get("name") or "").strip()]
         vecs = np.asarray(
@@ -145,8 +149,9 @@ class CitationGraphSystem:
                 break
             rows = self._store.query(
                 "MATCH (a:Entity)-[r:REL]-(b:Entity) WHERE a.id IN $ids AND r.type = 'cites' "
+                "AND b.source_layer = $curated AND r.source_layer = $curated "
                 "AND b.type = 'Paper' RETURN DISTINCT b.id AS id",
-                {"ids": frontier},
+                {"ids": frontier, "curated": SourceLayer.CURATED.value},
             )
             frontier = []
             for row in rows:

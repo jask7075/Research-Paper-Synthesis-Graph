@@ -207,6 +207,7 @@ class AgenticSystem:
         synthesis_model: str | None = None,
         graph_store: Any = None,
         critique: bool = True,
+        stage_writes: bool = False,
     ) -> None:
         settings = get_settings()
         self.name = name
@@ -224,6 +225,10 @@ class AgenticSystem:
         # The ablation §3.5 requires: without it, "the loop helps" cannot be separated from
         # "planning helps".
         self._critique = critique
+        # §3.2. Off by default: 3.5's acceptance is that the scored run is unaffected, and
+        # the cleanest way to guarantee that is for the deliverable not to write at all.
+        # The equality is demonstrated by running both ways, not assumed.
+        self._stage_writes = stage_writes and graph_store is not None
         self._planner: ChatClient | None = None
         self._synth: VectorRAGSystem = VectorRAGSystem(
             name=f"{name}:synth",
@@ -386,9 +391,28 @@ class AgenticSystem:
         text, cited = self._synth._resolve_handles(
             self._synth._synthesize(query, evidence), handles
         )
+        trace = traj.as_dict()
+        if self._stage_writes:
+            self._stage(trace)
         return SystemOutput(
-            text=text, cited_paper_ids=cited, evidence=evidence, trace=traj.as_dict()
+            text=text, cited_paper_ids=cited, evidence=evidence, trace=trace
         )
+
+    def _stage(self, trace: dict[str, Any]) -> None:
+        """Persist the decomposition as STAGED. Never allowed to fail a query.
+
+        A query-time write is a side effect of answering, not part of it. An answer that
+        succeeded must not be lost because the graph was locked or the write was malformed.
+        """
+        from rpsg.retrieval.staging import decomposition_nodes, write_staged
+
+        try:
+            nodes, edges = decomposition_nodes(
+                trace, qid=trace.get("qid", ""), system=self.name, model=self._planner_model
+            )
+            write_staged(self._graph_store, nodes, edges)
+        except Exception as exc:  # noqa: BLE001 - staging must never fail an answer
+            log.warning("staging failed, answer unaffected: %s", exc)
 
     def _critique_draft(
         self, query: str, subs: list[str], hits: list[SearchHit]

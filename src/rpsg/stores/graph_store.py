@@ -126,7 +126,24 @@ class KuzuGraphStore(GraphStore):
             rows.append(dict(zip(cols, result.get_next(), strict=False)))
         return rows
 
-    def promote_staged(self, node_ids: list[str] | None = None) -> int:
+    def promote_staged(
+        self, node_ids: list[str] | None = None, *, approved: bool = False
+    ) -> int:
+        """Move reviewed STAGED nodes into CURATED. Refuses without `approved=True`.
+
+        The flag is not ceremony. §8.2 built a 3,072-edge contradiction proposal that would
+        have entered the graph on file presence alone, and only an approval flag stopped it;
+        the audit then put edge precision at 32.5%, so ~2,000 of those edges were wrong.
+        Promotion moves derived material into the layer the metrics read, which is the one
+        irreversible step in this system, and it should be as hard to do by accident as
+        applying those edges turned out to need to be.
+        """
+        if not approved:
+            raise PermissionError(
+                "promote_staged requires approved=True. Nothing enters CURATED without a "
+                "labelled audit — see §8.2, where an unaudited 3,072-edge proposal was "
+                "stopped only by an approval flag and later measured at 32.5% precision."
+            )
         # Explicit promotion only; no auto-merge (README design principle 3).
         where = "e.source_layer = $staged"
         params: dict = {"staged": SourceLayer.STAGED.value, "curated": SourceLayer.CURATED.value}
