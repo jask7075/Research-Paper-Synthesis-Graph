@@ -45,6 +45,9 @@ def main() -> None:
                     help="agentic arms: hard ceiling on retrievals per query")
     ap.add_argument("--no-graph-hints", action="store_true",
                     help="agentic arms: plan without consulting the typed graph")
+    ap.add_argument("--no-anchor", action="store_true",
+                    help="agentic arms: drop the deterministic retrieval on the original "
+                         "query (§3.1). The ablation the anchor was adopted against")
     ap.add_argument("--stage-writes", action="store_true",
                     help="agentic arms: persist the decomposition as STAGED (§3.2). Off for "
                          "3.5's scored run — the deliverable must not write to the graph "
@@ -81,6 +84,7 @@ def main() -> None:
             ),
             critique=not args.system.endswith("_no_critique"),
             stage_writes=args.stage_writes,
+            anchor=not args.no_anchor,
             **kwargs,
         )
     elif args.system.startswith("citation_graph"):
