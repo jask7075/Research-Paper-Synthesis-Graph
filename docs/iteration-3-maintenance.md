@@ -614,10 +614,56 @@ not read *"code is available at <public url>"* as implying open access, and argu
 not — code availability and data availability are different claims. This may be a gold
 authoring question rather than an extraction one, and it is the largest remaining block.
 
-### Not applied to the corpus
+### Applied to the corpus — and the substrate moved further than the fix
 
-The measurement is on 21 papers in a scratch file. A full re-extraction (271 papers,
-~$4.60) would be needed for the fix to reach the graph, and it **rebuilds the substrate every
-retrieval arm reads**, so Iteration 2's stored numbers would no longer describe the current
-graph. That is a call to make deliberately and alongside 3.5, not as a side effect of a
-maintenance item. The prompt and schema changes are committed; the re-extraction is not run.
+The deferral was reversed and the rebuild run. Extraction temperature was pinned to 0 first,
+so this is the last rebuild needed rather than the first of two.
+
+```
+extraction    271 papers, 5,322 calls, $6.72
+merge cache   4,185 pairs re-adjudicated, $0.26
+stores        vector index rebuilt from unchanged chunks; graph rebuilt from new extractions
+```
+
+The merge-cache step is not optional and fails silently: `merge_verdicts.json` is keyed on
+node names, new extraction produces new names, and stage 05 skips the semantic-merge tier for
+any name it has no verdict for — no error, just degraded entity resolution.
+
+**3.6b holds at corpus scale**, matching the 21-paper measurement:
+
+| field | before | scratch runs | corpus |
+|---|---|---|---|
+| `code_url` | 0 | 2, 3, 3 | **2** |
+| `dataset_access` | 0 | 3, 3, 2 | **2** |
+| total correct | 8 | 14, 13, 14 | **11** |
+| accuracy | 73.2% | 77.5% | **74.6%** |
+
+`ReproducibilityArtifact` nodes went 34 → 78. `qubit_count` went 3 → 1, at the low end of the
+2/1/2 the scratch runs gave, so it reads as a small real regression rather than noise: the
+longer repro hint appears to cost some `Hardware` attention.
+
+### The part that matters for 3.5
+
+The rebuild changed far more than the repro layer. `Claim` nodes went **9,233 → 13,281
+(+44%)**, nodes 23,689 → 27,777, edges 11,131 → 14,978 — the repro hint now fires on `other`
+sections, 58% of all chunks, and sampling moved from the provider default to temperature 0.
+
+And the edge type §4.5 was written about:
+
+| edge | Iteration 2 | now |
+|---|---|---|
+| `undercuts` | 33 | **119** |
+| `refutes` | 8 | **21** |
+
+§4.5 diagnosed the relational weakness as `undercuts` being traversed **zero times across 34
+queries**, because only 33 existed in a graph of 11,186. There are now 119 from per-paper
+extraction alone — without the contradiction pass 3.6a refuted. **That may partially address
+the weakness independently of the agentic loop**, which makes it a finding and a confound at
+once: `typed_graph_chunks` 0.377 and `citation_graph` 0.367 describe a corpus that no longer
+exists and cannot be inherited into 3.5.
+
+**Stale as a result**, flagged rather than deleted: `contradictions.json` and both
+`contradiction_audit*.jsonl` reference node ids and claim texts that no longer exist. 3.6a's
+conclusion is unaffected — it was about the prompt, not the substrate — but those specific
+3,072 edges are gone. Iteration 2's substrate is recoverable from
+`data/processed/iteration2-backup/` (gitignored, local).
