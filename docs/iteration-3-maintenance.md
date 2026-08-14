@@ -662,6 +662,49 @@ the weakness independently of the agentic loop**, which makes it a finding and a
 once: `typed_graph_chunks` 0.377 and `citation_graph` 0.367 describe a corpus that no longer
 exists and cannot be inherited into 3.5.
 
+### What the quadrupled `undercuts` layer actually bought: nothing measurable
+
+Re-measured on the new substrate, same 10 dev queries, same code:
+
+| arm | old substrate | new substrate |
+|---|---|---|
+| `typed_graph_chunks` | 0.383 | **0.383** |
+| `citation_graph` | 0.367 | 0.400 |
+| `vector_fulltext` | 0.417 | 0.367 (×3 runs, all identical) |
+
+`typed_graph_chunks` is **unchanged to three decimal places** despite the graph gaining 44%
+more `Claim` nodes and 4× more `undercuts` edges.
+
+And the traversal does now reach them. Counting edge types traversed across the 10 queries:
+
+```
+addresses     103   43.6%
+provides       79   33.5%
+builds_on      21    8.9%
+evaluated_on   18    7.6%
+uses            9    3.8%
+undercuts       6    2.5%      <- was ZERO across 34 queries on the old substrate
+refutes         0
+```
+
+So `undercuts` went from unreachable to reachable, and the score did not move. **Edge
+coverage was necessary but not sufficient** — §4.5 identified a real gap and closing it
+turns out not to be what was binding. Only 1 of those 6 traversals is on a relational query,
+which is the class the whole diagnosis was about.
+
+**A second effect worth watching.** `provides` is now 33.5% of all traversal, up from
+negligible — a direct consequence of 3.6b routing `ReproducibilityArtifact` and `PROVIDES`
+into most sections. On queries that are not about code availability that is spent traversal
+budget under `max_nodes=150`, and it is a plausible reason the added evidence did not convert
+into recall. It is a cost of the repro fix that the repro score does not show.
+
+**On `vector_fulltext` 0.417 → 0.367.** Its retrieval is provably unchanged by the rebuild —
+the vector index is built from `chunks.jsonl`, which re-extraction does not touch. Three runs
+on the new substrate all return exactly 0.367, and the *old* substrate produced 0.367 too
+(`20260805T003845Z`) before the 0.417 that §4.1 cites. The reading is that 0.367 is the
+arm's value on these 10 and §4.1's 0.417 was a single lucky draw — which is the same defect
+as §6's judge table, in the retrieval numbers.
+
 **Stale as a result**, flagged rather than deleted: `contradictions.json` and both
 `contradiction_audit*.jsonl` reference node ids and claim texts that no longer exist. 3.6a's
 conclusion is unaffected — it was about the prompt, not the substrate — but those specific
