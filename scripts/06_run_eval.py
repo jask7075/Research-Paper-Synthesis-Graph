@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import UTC, datetime
+from pathlib import Path
 
 from rpsg.config import get_settings
 from rpsg.eval.gold_schema import load_gold
@@ -40,6 +41,9 @@ def main() -> None:
     ap.add_argument("--system", choices=list(_SYSTEMS), default="vector_fulltext")
     ap.add_argument("--top-k", type=int, default=60)
     ap.add_argument("--no-judge", action="store_true")
+    ap.add_argument("--gold", default="queries.jsonl",
+                    help="gold file under eval/gold. The active 10 by default; §3.5 scores "
+                         "on queries.full34.jsonl, once")
     ap.add_argument("--hash-embed", action="store_true", help="offline embedder (smoke test)")
     ap.add_argument("--max-retrievals", type=int, default=None,
                     help="agentic arms: hard ceiling on retrievals per query")
@@ -55,7 +59,7 @@ def main() -> None:
     args = ap.parse_args()
 
     settings = get_settings()
-    gold = load_gold(str(settings.paths.eval_gold / "queries.jsonl"))
+    gold = load_gold(str(settings.paths.eval_gold / args.gold))
     log.info("loaded %d gold queries", len(gold))
 
     embedder = (
@@ -129,7 +133,8 @@ def main() -> None:
         )
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = settings.paths.eval_runs / f"{stamp}_{args.system}"
+    tag = "" if args.gold == "queries.jsonl" else f"_{Path(args.gold).stem}"
+    run_dir = settings.paths.eval_runs / f"{stamp}_{args.system}{tag}"
     run_system(system, gold, run_dir, use_judge=not args.no_judge)
     log.info("run complete -> %s", run_dir)
     print((run_dir / "report.md").read_text())
