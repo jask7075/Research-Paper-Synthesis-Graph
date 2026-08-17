@@ -41,7 +41,34 @@ class Models(BaseModel):
     extraction_model: str = "gpt-5.4-nano"
     judge_model: str = "gpt-5.4-mini"
     synthesis_model: str = "gpt-5.4-mini"
+    #: Sampling temperature for extraction. `None` restores the provider default, which is
+    #: what Iterations 1 and 2 ran on -- and re-extracting the 21 repro_gold papers twice
+    #: with an identical prompt showed the cost: 9 of 147 field outcomes differed between
+    #: runs. That is the same defect 3.6c found in the judge, on the layer the whole graph
+    #: is built from, and it makes a corpus rebuild unreproducible. Pinned before the
+    #: Iteration 3 re-extraction so that rebuild is the last one needed.
+    extraction_temperature: float | None = 0.0
     local_inference_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
+    #: Base URL of an OpenAI-compatible server, e.g. "http://localhost:8000/v1".
+    #:
+    #: vLLM serves the OpenAI chat-completions API, so §3.3's "route chat calls to vLLM" is
+    #: exactly "point an OpenAI client at a different base URL". The plumbing lives here
+    #: rather than waiting with the rest of 3.3 because it is required whichever hardware
+    #: eventually serves the model, and it touches nothing 3.5 measures.
+    #:
+    #: Wired and unexercised: the model above needs ~8.5GB in 4-bit and CUDA-only AWQ
+    #: kernels, while the development machine is an 8GB M2 where Metal caps the usable
+    #: working set near 5.3GB. 3.3's run waits for hardware, not for code.
+    local_inference_base_url: str | None = None
+    #: Sampling temperature for the judge, and for the judge only. `None` restores the
+    #: provider default, which is what Iteration 1 and 2 ran on: nothing set a temperature
+    #: anywhere, so every reported kappa was computed from temperature-1.0 samples. Judging
+    #: the same 34 answers three times with an identical rubric produced per-criterion kappa
+    #: spreads of 0.12-0.25 -- wider than the margin by which §6 certified three criteria.
+    #: A grader that cannot reproduce its own grade cannot certify anything, so this is
+    #: pinned. Extraction and synthesis are deliberately left alone; changing their sampling
+    #: would make Iteration 2's stored runs non-comparable for no measured benefit.
+    judge_temperature: float | None = 0.0
     #: Override provider routing. None = infer from the model id (see rpsg.llm).
     provider: str | None = None
     #: Optional per-model rates, e.g. {"gpt-5.4-nano": {"input_per_mtok": 0.05,

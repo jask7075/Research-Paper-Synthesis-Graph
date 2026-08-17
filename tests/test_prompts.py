@@ -55,6 +55,48 @@ def test_the_repro_hint_is_absent_where_hardware_is_not_asked_for(section: str) 
     assert NodeType.HARDWARE not in _nodes_for(section)
 
 
+@pytest.mark.parametrize(
+    "section", ["abstract", "method", "results", "conclusion", "availability", "appendix"]
+)
+def test_repro_artifact_is_askable_where_papers_state_availability(section: str) -> None:
+    """`ReproducibilityArtifact` was reachable only from `availability` and `appendix`, and
+    `code_url` came back 0-for-15. Tracing all five gold papers that state a repo URL to the
+    section that states it: conclusion, abstract x2, results, availability. Four of the five
+    were unreachable. Same failure as `Hardware` before §2.4 — routing has to follow where
+    papers actually put things."""
+    assert NodeType.REPRO_ARTIFACT in _nodes_for(section)
+
+
+def test_repro_artifact_is_reachable_from_untyped_sections() -> None:
+    """`other` is 58% of chunks and carries a repo or archive URL for 14 papers, more than
+    any typed section: GROBID leaves a section untyped when the heading is unusual, so
+    "Code and data availability" under an unrecognised heading lands in the default."""
+    assert NodeType.REPRO_ARTIFACT in _DEFAULT_TYPES[0]
+
+
+@pytest.mark.parametrize("section", ["conclusion", "no-such-type"])
+def test_the_repro_hint_follows_repro_artifact_not_only_hardware(section: str) -> None:
+    """The hint carries the `code_url` / `dataset_access` field list. It was gated on
+    `Hardware` alone, so a section asked for `ReproducibilityArtifact` without `Hardware`
+    got the node type and no field list — the mechanism that left `code_url` empty with the
+    instruction one branch away."""
+    prompt = build_user_prompt("p1", "Conclusions", section, "Code at https://github.com/x.")
+    assert NodeType.REPRO_ARTIFACT in _nodes_for(section)
+    assert "code_url" in prompt
+    assert "dataset_access" in prompt
+
+
+def test_the_hint_offers_the_access_mode_papers_actually_use() -> None:
+    """15 papers say "upon reasonable request", which is neither open nor licensed. The enum
+    lacked it, so two authored `repro_gold` values could not be scored correct by any
+    extraction — a ceiling of 4 of 6 on `dataset_access` independent of routing."""
+    from rpsg.extraction.schema import DatasetAccess
+
+    assert DatasetAccess.ON_REQUEST.value == "on_request"
+    prompt = build_user_prompt("p1", "Data availability", "availability", "On request.")
+    assert "on_request" in prompt
+
+
 def test_limitation_stays_reachable_from_the_conclusion() -> None:
     """Regression: most papers state caveats in the conclusion, not under a heading."""
     assert NodeType.LIMITATION in _nodes_for("conclusion")

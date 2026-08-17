@@ -1,17 +1,25 @@
 # Research-Paper-Synthesis-Graph (RPSG)
 
 An agentic, **typed Graph-RAG** system for synthesizing relational answers across public
-literature (ArXiv, Semantic Scholar) and an internal corpus. The core bet is a *typed*
-knowledge graph (Paper / Method / Problem / Dataset / Claim / Limitation, plus a
-reproducibility layer) rather than a citation network or vector-only RAG — so a
-researcher can ask *"what methods were tried on problem X, which were limited by Y, and
-what's still open?"*
+literature (ArXiv, Semantic Scholar), built to answer questions like *"what methods were
+tried on problem X, which were limited by Y, and what's still open?"*
 
-> **This repository is the Phase-1 (Iteration 1) spine + evaluation scaffold.**
-> It builds the ingestion → chunk → extract → store pipeline and — first — the evaluation
-> harness. The exit criterion for Iteration 1 is: a **vector-over-full-text baseline scored
-> end-to-end by a calibrated LLM judge.** The agentic planner–critic loop and the four
-> extensions come in Iterations 2–3.
+The original bet was that a *typed* knowledge graph (Paper / Method / Problem / Dataset /
+Claim / Limitation, plus a reproducibility layer) would retrieve such answers better than a
+citation network or vector-only RAG. **Three iterations of measurement do not support that
+bet, and this repository reports the result rather than the intention.** The typed graph
+matches free `cites` edges from metadata to within 0.016, and closing the specific edge gap
+that was diagnosed as its weakness changed nothing. What *did* work is agentic decomposition
+— asking a multi-part question in parts — which beats every static arm on relational queries
+by +0.250 (p=0.012) at 1.2× the cost, while being worse everywhere else.
+
+The graph's one durable contribution is as a **planner**: `addresses` neighbourhoods reliably
+suggest what to ask next, even where traversal is a poor way to gather evidence.
+
+> **Iteration 3 is complete.** The pipeline, the evaluation harness, the typed-graph and
+> citation-graph arms, and the agentic planner–critic loop are all built and scored. Full
+> write-ups: [Iteration 1](docs/iteration-1-report.md),
+> [Iteration 2](docs/iteration-2-report.md), [Iteration 3](docs/iteration-3-report.md).
 
 [![CI](https://github.com/jask7075/Research-Paper-Synthesis-Graph/actions/workflows/ci.yml/badge.svg)](https://github.com/jask7075/Research-Paper-Synthesis-Graph/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
@@ -19,109 +27,104 @@ what's still open?"*
 
 ## Status
 
-**The exit criterion is met.** `vector_fulltext` has been scored end to end against a
-10-query gold set whose paper ids all resolve to indexed papers, and the judge has been
-calibrated against hand-assigned grades. Two of five judge criteria clear the agreement
-threshold; the other three do not and are named below. The baseline is weak — that is the
-result, not a caveat about it.
+**Iteration 3 result: decomposition beats static retrieval on relational queries, and only
+there.** 34-query gold set, paired per query, three repeats, `must_cite_recall`:
+
+| | Δ vs `vector_fulltext` | W / L / T | p |
+|---|---|---|---|
+| all 34 queries | +0.059 | 12 / 9 / 13 | 0.403 |
+| **relational (n=14)** | **+0.250** | 8 / 1 / 5 | **0.012** |
+| non-relational (n=20) | −0.075 | 4 / 8 / 8 | 0.340 |
+
+The overall figure is a null. The agentic arm is measurably **worse** on non-relational
+queries, which is what makes the relational result credible rather than an evidence-volume
+effect. Cost is **1.2×**, not the order of magnitude anticipated.
+
+Arm standings (mean of 3 repeats, spread across repeats):
+
+| arm | `must_cite_recall` | spread | judge `coverage` |
+|---|---|---|---|
+| `agentic` | **0.492** | 0.461 – 0.539 | **3.76** |
+| `typed_graph_chunks` | 0.456 | 0.422 – 0.480 | 3.32 |
+| `agentic_no_critique` | 0.449 | 0.436 – 0.466 | 3.71 |
+| `citation_graph` | 0.444 | 0.431 – 0.456 | 3.47 |
+| `vector_fulltext` | 0.433 | 0.412 – 0.446 | 3.56 |
+
+**The mechanism is not the one that was predicted.** Iteration 2 attributed the relational
+weakness to missing `undercuts` edges. Three independent measurements refute that account
+while the effect itself replicates — see [§4 of the Iteration 3
+report](docs/iteration-3-report.md). Decomposition helps relational queries; *why* is open.
 
 Built and verified by running it:
 
 | | |
 |---|---|
-| corpus | 353 papers (Semantic Scholar metadata), 270 with full text |
-| sections / chunks | 5,767 sections → 10,993 chunks (10,725 full-text, 268 abstract) |
-| typed graph | 23,460 nodes, 10,660 edges (Kuzu) |
-| citation layer | 2,333 `cites` edges |
-| vector index | 10,993 chunks, SPECTER embeddings (faiss) |
-| gold query set | 10 queries — 4 relational, 3 refutation, 2 lookup, 1 open-directions |
-| extraction cost | ~2.8¢/paper — 21 papers, 507 calls, $0.58 (`gpt-5.4-nano`, measured) |
-| eval run cost | $0.19 for 10 queries — 20 calls (`gpt-5.4-mini`, synthesis + judge) |
-| tests | 42 passing; ruff + mypy clean in CI |
+| corpus | 353 papers (Semantic Scholar metadata), 271 with full text and extracted |
+| sections / chunks | 11,020 chunks, SPECTER embeddings (faiss) |
+| typed graph | 27,777 nodes, 14,978 edges (Kuzu) |
+| edge layers | `addresses` 3,707 · `cites` 2,446 · `undercuts` 119 · `refutes` 21 |
+| gold query set | 34 queries — 14 relational, 9 refutation, 6 lookup, 5 open-directions; 10 active as the development set |
+| extraction cost | 271 papers, 5,322 calls, $6.72 (`gpt-5.4-nano`, temperature 0, measured) |
+| eval cost per query | $0.024 static, $0.028 agentic |
+| tests | 214 passing; ruff + mypy clean in CI |
 
-`rpsg.llm.usage` accumulates token counts in-process and prints a table at the end of a
-run; it does not persist. The per-paper figure above is measured over the 21 papers
-extracted in the two runs that produced the current corpus — the whole-corpus total was
-never captured and is not recoverable without a full re-extraction.
+### Judge calibration — one criterion of five is usable
 
-**Iteration 1 result** — run `eval/runs/20260804T221802Z_vector_fulltext`:
+Measured on 34 hand-graded answers with the judge pinned at temperature 0:
 
-| deterministic metric | mean |
-|---|---|
-| `must_cite_recall` | 0.217 |
-| `citation_precision` | 0.150 |
-| `key_claim_source_recall` | 0.167 |
-| `refutation_surfaced` | 0.700 — but see below; the honest figure is 0 of 3 |
+| criterion | QWK | trusted |
+|---|---|---|
+| `coverage` | **+0.76** | **yes** |
+| `attribution` | +0.45 | no |
+| `refutation_handling` | +0.44 (n=9) | no |
+| `synthesis` | +0.63 | on the 34 only — see below |
+| `hedging_accuracy` | +0.25 | no |
 
-`refutation_surfaced` returns `1.0` for queries that have no `known_refutations`, and 7 of
-10 qualify. All three queries that *do* encode a contradiction scored 0.00. The 0.700 is an
-artifact of the metric's default, not a capability.
+Three findings behind that table, each recorded because each invalidated something previously
+reported:
 
-| judge criterion | human | judge | QWK | trusted |
-|---|---|---|---|---|
-| `coverage` | 2.10 | 2.40 | +0.68 | yes |
-| `hedging_accuracy` | 4.00 | 3.60 | +0.67 | yes |
-| `synthesis` | 3.20 | 2.50 | +0.53 | no |
-| `attribution` | 1.80 | 2.60 | +0.02 | no |
-| `refutation_handling` | 3.33 | 3.00 | +0.57 (n=3) | no |
+- **The judge had been sampled at the provider default (1.0) for the project's entire life.**
+  Judging the same 34 answers three times with an identical rubric gave per-criterion κ
+  spreads up to 0.25, against a 0.26 gap to the trust threshold. Every calibration figure
+  before Iteration 3 was one draw presented as a measurement.
+- **`attribution` sits at the human ceiling.** The grader agrees with *themselves* at +0.29
+  on a blind re-grade; the judge agrees with them at +0.30. There was never a gap for a rubric
+  to close, which is why three rubric rewrites moved offset and ranking but never
+  agreement-on-level.
+- **The two gold sets disagree about which criteria pass.** `synthesis` reads +0.63 on the 34
+  and +0.38 on the active 10; `attribution` +0.45 and +0.79. Only `coverage` is indifferent, so
+  it is the only judged criterion reported across arms.
 
-Headline number: judge **`coverage` 2.4 / 5**, the one criterion that both passed
-calibration and is what the gold `facets` were written to test.
+### Known limitations, measured
 
-Three criteria are untrusted for distinct reasons. `attribution` (κ=+0.02, ρ=+0.04,
-p=0.92 — no relationship at all) is an instrument defect rather than a judge defect: the
-judge scores it with the retrieved context in its prompt, while `traces.jsonl` records only
-`evidence_chars`, so the human grader had no way to see the same evidence. `synthesis`
-tracks the human ranking closely (ρ=+0.88) but sits ~0.7 lower on the scale — an offset,
-not a disagreement. `refutation_handling` has n=3, which cannot support a kappa; treat it
-as unmeasured rather than as a near miss.
+- **The typed graph is a weak retriever.** It matches free `cites` edges from metadata to
+  within 0.016 (Iteration 2 §5.2), and quadrupling the `undercuts` layer — 33 → 119 edges, and
+  traversal from zero occurrences to six — left `typed_graph_chunks` at 0.383 → 0.383,
+  unchanged. Edge coverage was necessary, not sufficient.
+- **Cross-paper contradiction detection does not work.** Two prompts, both at 32.5% edge
+  precision on a human audit; the revision discarded ~65% of the real edges for no gain.
+- **This does not evaluate graph-based global summarisation.** All 34 gold queries carry a
+  `must_cite` list, so this measures graph-based *retrieval on citation-grounded queries*.
+  Hierarchical community detection, community summaries and map-reduce global search are not
+  implemented, and this gold set could not measure them. The negative results above bear on
+  the graph as a retriever, not as a summarisation scaffold.
+- **Single grader, permanently.** This is a one-person project, so inter-annotator agreement
+  is unmeasured and will remain so. Test–retest is reported in its place and is the weaker
+  substitute.
+- **The repro layer recovers little.** `code_url` 2 of 5 and `dataset_access` 2 of 6 on the
+  papers that state one, after a routing fix that took both from zero.
 
-**Why the baseline is weak: retrieval, diagnosed.** Of the 9 distinct papers the gold set
-requires, 5 never appear in any query's top-20 — including the D-Wave community-detection
-paper required by 4 queries. This is not an indexing failure: targeted probes pull each of
-them to rank 1. The index holds 270 papers of which ~88% are quantum VQE / error-correction
-work that no gold query asks about, and under natural query phrasing that mass outranks the
-36 community-detection papers the queries actually target.
+### Carried forward
 
-Ask it something with [`scripts/ask.py`](scripts/ask.py); inspect what the parser sees with
-[`scripts/inspect_pdf.py`](scripts/inspect_pdf.py); run the whole thing with
-[`scripts/run_pipeline.py`](scripts/run_pipeline.py).
-
-**Carried into Iteration 2**
-
-- **`traces.jsonl` records no evidence text**, only `evidence_chars`. This is what makes
-  `attribution` uncalibratable — the human grader cannot see what the judge saw. Fixing it
-  gates any future attribution claim.
-- **Corpus / gold-set mismatch.** The index spans two disjoint literatures and the gold set
-  addresses only one, which is the diagnosed cause of the retrieval misses above. Either
-  scope the index or widen the gold set before reading much into the baseline.
-- **Calibration is underpowered.** n=10 for four criteria, n=3 for `refutation_handling`.
-  Scoring a second system against the same gold set would double the graded pairs without
-  writing new gold.
-- **`extraction_gold` / `repro_gold`** — schemas exist by example, unpopulated. So every
-  statement about extraction *quality* below is an inspection, not a measurement.
-
-**Known limitations, measured**
-
-- **No entity resolution.** Node ids are slugified surface names, so `random circuits` and
-  `Random Parameterized Quantum Circuits (RPQCs)` remain distinct nodes. Identical strings
-  do collapse (605 `Method` duplicates merged on store), which is partial and accidental.
-  Iteration 2.
-- **`refutes` / `undercuts` are near-empty** (4 and 24 edges across 270 papers). This is
-  structural, not a tuning gap: extraction runs per-section within one paper, and a paper
-  rarely refutes itself. Cross-paper contradictions need a second pass over extracted
-  claims — Iteration 2, with entity resolution.
-- **`Hardware` is sparse** (8 nodes / 6 papers). Most quantum-computing papers simply do
-  not report hardware specifications, so extension #4's ceiling is set by the literature
-  rather than by extraction.
-- **52% of sections type as `other`.** Most are genuine domain subsections ("The role of
-  measurements") that no keyword scheme will classify; they fall back to the default node
-  types. GROBID would improve this and is preferred when reachable — the bundled fallback
-  exists because GROBID ships amd64-only and cannot spawn `pdfalto` under Apple-Silicon
-  emulation.
-
-**Next (Iteration 2):** entity resolution for Method/Problem nodes, the typed-graph
-retrieval system, and the citation-graph ablation.
+- **Local inference (§3.3)** — plumbing landed, run deferred: `Qwen2.5-14B-Instruct-AWQ` needs
+  ~8.5 GB in 4-bit and CUDA-only kernels, against an 8 GB M2. Config change plus one run when
+  hardware is available.
+- **A mechanically-splitting arm** would separate "splitting a question helps" from "planning
+  helps" — the open mechanism question above.
+- **Why the self-critique is worth +0.091** on relational when it adds a *required* paper on
+  only 4–7 of 34 queries.
+- **Global-sensemaking queries and metrics**, prerequisite for evaluating anything
+  GraphRAG-shaped.
 
 ## Design principles (why the code is shaped this way)
 
@@ -310,9 +313,16 @@ establish a field, then co-citation to connect it** — not one technique beatin
 
 It is **not** evidence that typed edges outperform untyped ones. At 240 papers that
 comparison was confounded — 3,813 typed edges against 309 citation edges means a typed win
-could be explained entirely by edge count. After expansion the arms are within the same
-order of magnitude (5,738 typed vs 2,333 citation edges), which is what makes the
-Iteration-2 ablation an experiment rather than a foregone conclusion.
+could be explained entirely by edge count. After expansion the arms sat within the same
+order of magnitude, which is what made the Iteration-2 ablation an experiment rather than a
+foregone conclusion.
+
+**That experiment has since run, and the typed edges did not win.** Iteration 2 §5.2 put the
+citation arm within **0.016** of the typed arm, and Iteration 3 re-measured both on a rebuilt
+graph (14,978 edges, 2,446 of them `cites`) with the citation arm slightly *ahead* on the
+development set. So the work described above — spending 77 co-citation papers to make the
+comparison fair — bought a fair comparison that the typed graph then lost. That is the
+result, and it is the reason this section is kept rather than quietly dropped.
 
 ## Models
 

@@ -86,17 +86,17 @@ def run_system(
             # measures the asymmetry rather than the judge: on the first calibrated
             # run that criterion came back at kappa=+0.02, rho=+0.04, p=0.92 — no
             # relationship at all — while the other four correlated strongly.
-            traces_fh.write(
-                json.dumps(
-                    {
-                        "qid": g.qid,
-                        "system": system.name,
-                        "evidence": out.evidence,
-                        "evidence_chars": len(out.evidence),
-                    }
-                )
-                + "\n"
-            )
+            trace: dict = {
+                "qid": g.qid,
+                "system": system.name,
+                "evidence": out.evidence,
+                "evidence_chars": len(out.evidence),
+            }
+            # Only when the arm has one, so the static arms' traces stay byte-identical to
+            # Iteration 2's and remain directly comparable.
+            if getattr(out, "trace", None):
+                trace["trajectory"] = out.trace
+            traces_fh.write(json.dumps(trace) + "\n")
 
             violations = check_answer(answer, corpus_ids=corpus_ids or None)
             for v in violations:
@@ -118,7 +118,7 @@ def run_system(
         scores_fh.close()
         violations_fh.close()
 
-    _write_report(system.name, all_scores, run_dir / "report.md", all_violations)
+    write_report(system.name, all_scores, run_dir / "report.md", all_violations)
     return run_dir
 
 
@@ -136,12 +136,18 @@ def _applicable(rows: list[dict], key: str) -> list[float]:
     return [r[key] for r in rows if r.get(key) is not None]
 
 
-def _write_report(
+def write_report(
     system_name: str,
     scores: list[dict],
     path: Path,
     violations: list[Violation] | None = None,
 ) -> None:
+    """Aggregate + by-query-type table for a set of scored rows.
+
+    Public because `scripts/rejudge.py` produces the same rows from stored answers and must
+    render them identically — a re-judged run that reported its means differently would not
+    be comparable to the run it re-scores.
+    """
     if not scores:
         path.write_text(f"# {system_name}\n\nNo scores.\n")
         return
