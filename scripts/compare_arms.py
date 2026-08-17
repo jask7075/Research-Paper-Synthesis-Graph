@@ -6,19 +6,9 @@
 Reads  every eval/runs/*<suffix>/ directory, grouped by the system that produced it
 Writes eval/runs/comparison_<metric>.txt
 
-**Paired, not a comparison of run means.** Every arm answers the same 34 questions, so the
-comparison that matters is per query: on how many queries did A beat B, and by how much. A
-Wilcoxon signed-rank over 34 paired differences is far more powerful than a t-test over three
-run-level averages, which is what "3 repeats" would otherwise give.
-
-**Repeats are averaged per query before pairing.** Each arm's score for a query is the mean
-of its repeats, so the pairing is one number per query per arm and the repeat-to-repeat
-spread is reported separately. Pooling repeats as independent observations would trebles the
-apparent n while the queries stay the same 34, which inflates significance.
-
-**The spread is reported beside every mean.** §4.1's n=10 figure and §6's whole calibration
-table were each a single draw, and both turned out to be misleading. A mean without a spread
-is the same mistake.
+The statistics live in `rpsg.eval.comparison` so they can be unit-tested; this script is the
+file I/O, the query-type breakdowns and the report. See that module for why the comparison is
+paired per query, why repeats are averaged before pairing, and why ties are surfaced.
 """
 
 from __future__ import annotations
@@ -28,9 +18,9 @@ import json
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
 
 from rpsg.config import get_settings
+from rpsg.eval.comparison import paired, per_query, run_means
 
 DETERMINISTIC = (
     "must_cite_recall",
@@ -69,52 +59,6 @@ def load_runs(runs_dir: Path, suffix: str) -> dict[str, list[dict[str, dict]]]:
             continue
         out[_system_of(run)].append({r["qid"]: r for r in _jsonl(run / "scores.jsonl")})
     return dict(out)
-
-
-def per_query(repeats: list[dict[str, dict]], metric: str) -> dict[str, float]:
-    """Mean across repeats, per query. `None` scores are skipped, not coerced."""
-    acc: dict[str, list[float]] = defaultdict(list)
-    for rep in repeats:
-        for qid, row in rep.items():
-            if row.get(metric) is not None:
-                acc[qid].append(float(row[metric]))
-    return {q: sum(v) / len(v) for q, v in acc.items() if v}
-
-
-def run_means(repeats: list[dict[str, dict]], metric: str) -> list[float]:
-    """One mean per repeat, for the spread."""
-    out = []
-    for rep in repeats:
-        vals = [float(r[metric]) for r in rep.values() if r.get(metric) is not None]
-        if vals:
-            out.append(sum(vals) / len(vals))
-    return out
-
-
-def paired(a: dict[str, float], b: dict[str, float]) -> dict[str, Any]:
-    """Wilcoxon signed-rank over the queries both arms scored.
-
-    Ties are counted and reported: on this gold set many queries score identically under two
-    arms, and a test that silently drops them overstates how much evidence there is.
-    """
-    from scipy.stats import wilcoxon
-
-    shared = sorted(set(a) & set(b))
-    diffs = [a[q] - b[q] for q in shared]
-    nonzero = [d for d in diffs if d != 0]
-    res: dict[str, Any] = {
-        "n": len(shared),
-        "ties": len(diffs) - len(nonzero),
-        "a_wins": sum(1 for d in nonzero if d > 0),
-        "b_wins": sum(1 for d in nonzero if d < 0),
-        "mean_diff": sum(diffs) / len(diffs) if diffs else 0.0,
-    }
-    if len(nonzero) < 6:
-        res["p"] = None
-        res["note"] = f"only {len(nonzero)} non-tied queries — too few to test"
-        return res
-    res["p"] = float(wilcoxon(nonzero).pvalue)
-    return res
 
 
 def main() -> None:
