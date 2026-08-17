@@ -282,7 +282,92 @@ and says nothing about whether an answer reads well.
 
 ---
 
-## 11. Carried forward
+## 11. Engineering record — 28 fixes
+
+Grouped by what they touched. The pattern worth naming: **seven of these were defects that
+produced a plausible number rather than an error**, and in four cases the thing that caught a
+later mistake was a fix that had looked like housekeeping when it was made.
+
+### Sampling was never disabled (7)
+
+| # | defect | how it was found |
+|---|---|---|
+| A1 | The judge ran at the provider default (1.0). Nothing in the project had ever set a temperature. | Judging the same 34 answers three times with an identical rubric gave κ spreads to 0.25, against a 0.26 gap to the trust threshold. |
+| A2 | Extraction had the same defect — so the entire graph was unreproducible. | Extracting the same 21 papers twice with one prompt differed on 9 of 147 field outcomes. Pinned *before* the rebuild so it happened once. |
+| A3 | The planner is nondeterministic and pinning does not fix it: its output *is* the retrieval query, so rewording changes which papers are reachable. | Three draws of one plan at temperature 0 gave three wordings; the same code scored 0.567 and 0.333. Fixed architecturally by the anchor (§2), spread 0.050 → 0.000. |
+| A4 | Criteria were certified from a single draw. | `--repeats` added; certification now requires the **worst** sample to clear the bar. |
+| A5 | The judge's per-criterion justifications were requested and discarded. | This is the only reason v2's defect was diagnosable — the saved reasons showed it penalising a correctly reused citation handle. A score cannot explain itself. |
+| A6 | No way to re-score stored answers, so a rubric change could not be isolated from resampled synthesis. | `rejudge.py`: re-grades answers on disk, never modifies the source run. |
+| A7 | Rubric versions were not retained, leaving no control arm. | v1 kept and selectable. Re-running v1 on the same answers measures the noise floor. **Outcome: v1 scored best of three, so the default was set back to it**, with a test recording why. |
+
+### Gold-set handling (3)
+
+| # | defect | consequence |
+|---|---|---|
+| B1 | Scripts defaulted to the 10-query file even for a 34-query run. | Would have scored a third of the data and reported it as the whole. Now auto-selects the smallest covering file and errors if none covers. |
+| B2 | Calibration figures depended on which set was used, unstated. | The sets disagree on which criteria pass — `attribution` +0.79 on the 10, +0.30 on the other 24. `calibrate_judge.py` now always prints the complement. |
+| B3 | `06_run_eval.py` hardcoded the active gold file. | `--gold` added; non-default runs are tagged in the run directory name. |
+
+### Reproducibility layer — three faults, not one (3)
+
+| # | defect | detail |
+|---|---|---|
+| C1 | `REPRO_ARTIFACT` was reachable from two section types. | Four of the five gold papers that state a `code_url` state it elsewhere. Now routed to `abstract`, `method`, `results`, `conclusion` and the default. |
+| C2 | The field-list hint was gated on `Hardware`. | A section could be asked for the node type while being told nothing about which attributes to fill. |
+| C3 | `DatasetAccess` had no `on_request` member. | Two authored gold values were **unscoreable by any extraction**; 15 corpus papers use that wording. A ceiling of 4/6 before the extractor was involved. |
+
+Result: `code_url` 0 → 2, `dataset_access` 0 → 2, total correct 8 → 11.
+
+### Contradiction tooling (4)
+
+| # | defect | consequence |
+|---|---|---|
+| D1 | The verdict cache key recorded the claim pair but not the prompt version. | A v2 run would have returned 16,965 **v1** verdicts and reported them as v2's. One command from a false finding. |
+| D2 | `--score` read the accepted total from the old edge file regardless of what it audited. | Reported "of 3,072 accepted" for a pass that accepted 1,172. |
+| D3 | One hardcoded input and output file. | Auditing a second attempt would have destroyed the record of the first. Both now selectable. |
+| D4 | §8.2's labeller was never itself validated. | `--validate-labeller` scores it against the existing labels first. It immediately failed: 76.7% agreement, but **2 of 15 real disagreements found** — a labeller that answers "neither" to everything reports low precision regardless of truth. Without this the number would have been reported. |
+
+### A safety invariant that was never enforced (3)
+
+| # | defect |
+|---|---|
+| E1 | `typed_graph` did not filter `source_layer` — on **seeding or expansion**. Two places, either of which leaves a route in. |
+| E2 | `citation_graph` had the same gap in both places. |
+| E3 | `promote_staged` had no approval gate, so unreviewed material could enter the scored layer. Now refuses without `approved=True`. |
+
+The invariant in `stores/base.py` — *metrics query CURATED only* — had held solely because
+nothing had ever written STAGED. It was vacuously true, and the first query-time write would
+have let an agent raise its own score. **Honest limit:** the acceptance experiment exercised
+the node filter (20,688 unchanged while unfiltered grew to 20,726); the edge filter is a
+second lock and was not exercised, because staged edges connect only to staged nodes.
+
+### Trajectory measures (2)
+
+| # | defect |
+|---|---|
+| F1 | Gold `must_cite` is `paper:<id>`; the trace records bare ids. The intersection was empty for every query, so retrieval efficiency read **0.000 as a plausible number rather than an error**. The strongest argument for §3.4 preceding §3.5. |
+| F2 | Decomposition coverage read 1.000 on all 29 facets. Measuring the null — each facet against every *other* query's plan — gave 0.769 against 0.808 matched, with **100% of unrelated pairs passing at the default threshold**. Replaced by a paired specificity measure plus a validity check that prints before the scores. |
+
+### Plumbing (5)
+
+| # | change |
+|---|---|
+| G1 | `04_extract.py --papers/--out` — prices a routing change at ~$0.36 instead of $6.72 |
+| G2 | `SystemOutput.trace` + runner persistence; static arms leave it empty so their traces stay byte-identical |
+| G3 | `runner._write_report` → `write_report`, now shared with `rejudge.py` |
+| G4 | `base_url` through the LLM layer, and `temperature` through all three clients |
+| G5 | `resolve_gold` moved into `gold_schema`, since two scripts need it and `scripts/` is not importable |
+
+### Documentation that contradicted the measurements (2)
+
+| # | defect |
+|---|---|
+| H1 | `README.md` certified `hedging_accuracy` and rejected `synthesis` — both backwards — and reported 10 gold queries, 23,460 nodes, 42 tests, and "Next (Iteration 2): entity resolution". Its opening asserted the typed-graph bet as untested. |
+| H2 | The co-citation section explained how it made the typed-vs-citation ablation fair, and never recorded that the ablation was lost. |
+
+---
+
+## 12. Carried forward
 
 | item | why it is open |
 |---|---|
