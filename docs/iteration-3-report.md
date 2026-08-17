@@ -266,10 +266,15 @@ relational-vs-baseline result (p=0.012) survives and the critique ablation (p=0.
 
 **n=14 relational**, 5 of those in the required breakdown group.
 
-**One substrate, one metric, one judge-free comparison.** `must_cite_recall` counts required
-papers cited and says nothing about whether an answer reads well. `coverage` is the only judged
-criterion certified to accompany it, and **it has not yet been scored on the 3.5 runs** — that
-measurement is outstanding.
+**The judged criterion agrees on ranking, not on pattern.** `coverage` — the only criterion
+certified on both gold sets — also puts `agentic` first (3.76 against `vector_fulltext`'s 3.56),
+but nothing is significant (+0.21, p=0.143) and it shows a weak *uniform* lead where
+`must_cite_recall` shows the arm to be worse on non-relational. It has almost no resolution at
+this n: the judge assigns both arms the same integer score on **21 of 34 queries**. So §1's
+result rests on the deterministic metric, and `coverage` neither strengthens nor undermines it.
+
+**One substrate, one metric that resolves.** `must_cite_recall` counts required papers cited
+and says nothing about whether an answer reads well.
 
 **Three repeats** bound the run-to-run spread; they cannot establish determinism.
 
@@ -281,7 +286,6 @@ measurement is outstanding.
 
 | item | why it is open |
 |---|---|
-| `coverage` on the §3.5 runs | required by the plan; `rejudge.py` on stored answers, ~$4 |
 | §3.3's vLLM run | needs CUDA hardware; config change plus one run |
 | A mechanically-splitting arm | would separate "splitting helps" from "planning helps" (§4) |
 | Why the critique is worth 0.091 | changes the evidence 31–33 times, adds a required paper 4–7 (§5) |

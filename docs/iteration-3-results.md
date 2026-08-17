@@ -141,6 +141,49 @@ queries but adds a *required* paper on only 4–7, and yet removing it costs 0.0
 (p=0.043). A step that rarely reaches new required papers should not be worth that much, and
 this measurement does not explain why it is.
 
+## The judged criterion: `coverage`
+
+Scored on repeat 1 of each arm with `rejudge.py` — v1 rubric, judge at temperature 0, the
+only configuration and the only criterion certified on both gold sets.
+
+| arm | all 34 | relational | non-relational |
+|---|---|---|---|
+| **`agentic`** | **3.76** | **3.64** | **3.85** |
+| `agentic_no_critique` | 3.71 | 3.57 | 3.80 |
+| `vector_fulltext` | 3.56 | 3.36 | 3.70 |
+| `citation_graph` | 3.47 | 3.36 | 3.55 |
+| `typed_graph_chunks` | 3.32 | 3.07 | 3.50 |
+
+Paired against `vector_fulltext`:
+
+| subset | Δ | W / L / T | p |
+|---|---|---|---|
+| all 34 | +0.21 | 9 / 4 / 21 | 0.143 |
+| relational | +0.29 | 4 / 1 / 9 | — (5 non-tied, too few) |
+| non-relational | +0.15 | 5 / 3 / 12 | 0.562 |
+
+**It corroborates the ranking and not the pattern, and that is worth stating plainly.**
+`agentic` is first on `coverage` too, so the two metrics agree on which arm is best. But
+nothing is significant, and `coverage` shows a weak *uniform* lead (+0.15 on non-relational)
+where `must_cite_recall` showed the arm to be **worse** there (−0.075). The relational
+concentration that carries §3.5's result does not reproduce in the judged criterion.
+
+Two reasons, neither flattering to the judged measure:
+
+- **The metrics ask different questions.** `coverage` asks whether the answer addresses the
+  gold facets; `must_cite_recall` asks whether it cites the required papers. An answer can
+  discuss the right things while grounding them on the wrong papers, and the agentic arm's
+  extra retrievals plausibly help the first more evenly than the second.
+- **`coverage` has almost no resolution here.** It is an integer 1–5, and the judge assigns
+  *the same score to both arms on 21 of 34 queries* — 9 of 14 on relational. A measure that
+  ties two-thirds of the time cannot localise an effect to a subset of 14.
+
+So the deterministic result stands on its own evidence and `coverage` neither strengthens nor
+undermines it. `typed_graph_chunks` is worth one note: **last on `coverage` (3.32) while
+second on `must_cite_recall` (0.456)** — it reaches required papers and addresses gold facets
+least well of any arm, which is the reach-without-conversion pattern Iteration 2 measured
+from the other direction.
+
 ## Threats
 
 - **Multiple comparisons.** Two comparisons were pre-registered: against the baseline and the
