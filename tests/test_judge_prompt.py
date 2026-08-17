@@ -134,9 +134,14 @@ def test_the_judge_pins_its_sampling_temperature() -> None:
     assert get_settings().models.judge_temperature == 0.0
 
 
-def test_an_explicit_none_temperature_survives_the_default() -> None:
+def test_an_explicit_none_temperature_survives_the_default(monkeypatch) -> None:
     """`None` means "use the provider default" and is the setting every pre-3.6c run used,
     so it has to be distinguishable from "the caller passed nothing"— otherwise the old
     behaviour becomes unreproducible."""
+    from rpsg.config import get_settings
+
+    # Constructing a `Judge` builds a hosted client, which validates the key eagerly. No
+    # request is made; the placeholder only gets the constructor past that check.
+    monkeypatch.setattr(get_settings(), "openai_api_key", "placeholder-not-used")
     judge = Judge(model="gpt-5.4-mini", prompt_version="v1", temperature=None)
     assert judge.temperature is None
