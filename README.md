@@ -313,9 +313,16 @@ establish a field, then co-citation to connect it** — not one technique beatin
 
 It is **not** evidence that typed edges outperform untyped ones. At 240 papers that
 comparison was confounded — 3,813 typed edges against 309 citation edges means a typed win
-could be explained entirely by edge count. After expansion the arms are within the same
-order of magnitude (5,738 typed vs 2,333 citation edges), which is what makes the
-Iteration-2 ablation an experiment rather than a foregone conclusion.
+could be explained entirely by edge count. After expansion the arms sat within the same
+order of magnitude, which is what made the Iteration-2 ablation an experiment rather than a
+foregone conclusion.
+
+**That experiment has since run, and the typed edges did not win.** Iteration 2 §5.2 put the
+citation arm within **0.016** of the typed arm, and Iteration 3 re-measured both on a rebuilt
+graph (14,978 edges, 2,446 of them `cites`) with the citation arm slightly *ahead* on the
+development set. So the work described above — spending 77 co-citation papers to make the
+comparison fair — bought a fair comparison that the typed graph then lost. That is the
+result, and it is the reason this section is kept rather than quietly dropped.
 
 ## Models
 
