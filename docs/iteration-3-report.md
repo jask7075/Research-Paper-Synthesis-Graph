@@ -38,8 +38,8 @@ evidence-volume effect. The plan pre-registered a uniform gain as *suspect*.
 
 Secondary findings, each from a dedicated measurement:
 
-- **Cost is 1.2×**, not the order of magnitude the plan assumed (§5.6).
-- **The self-critique earns its place**: +0.091 on relational, p=0.043 (§5.5).
+- **Cost is 1.2×**, not the order of magnitude the plan assumed (§5.7).
+- **The self-critique earns its place**: +0.091 on relational, p=0.043 (§5.7).
 - **The proposed mechanism is refuted** by three independent measurements while the effect
   replicates (§6).
 - **Plan quality does not predict outcome** — ρ ≈ −0.13, replicated across three runs (§4.3).
@@ -233,13 +233,73 @@ Not permitted afterward: changing the planner, critic, budget, `top_k`, models, 
 graph hints and re-running. Fixing the *measuring instrument* remains legitimate — §4.2 found
 a gold-id mismatch that made one measure structurally zero, and correcting that is not tuning.
 
-### 5.2 The result
+### 5.2 The two gold sets, and what separates them
+
+Calibration is reported on the active 10 with the 34 beside it, because **the two sets
+disagree about which criteria pass** — and not by a little:
+
+| criterion | the active 10 | the other 24 | all 34 |
+|---|---|---|---|
+| `coverage` | +0.76 | +0.72 | +0.76 |
+| `attribution` | **+0.79** | **+0.30** | +0.45 |
+| `hedging_accuracy` | +0.26 | +0.16 | +0.25 |
+| `synthesis` | **+0.38** | **+0.77** | +0.63 |
+
+Only `coverage` is indifferent, which is why it is the only judged criterion §5.7 reports
+across arms. `calibrate_judge.py` now always prints the complement, so a figure cannot travel
+without its denominator.
+
+**The split is by research domain, not by chance.** The active 10 are the questions arising
+from the author's master's thesis — community detection, modularity maximisation, graph
+partitioning, and encodings for constrained combinatorial optimisation. The other 24 are
+general quantum computing: barren plateaus, VQE, error mitigation, surface codes.
+
+**And the two sets pose structurally different retrieval problems.** Classifying each gold
+query's required papers by literature:
+
+| | needs papers from **both** literatures |
+|---|---|
+| thesis questions | **7 of 10** |
+| quantum questions | **1 of 24** |
+
+A question like *"how is the modularity objective converted into a form solvable on quantum
+hardware"* requires evidence from a graph-theory paper and a quantum-optimisation paper at
+once. One similarity search embeds the question a single time and lands in one literature or
+the other. That is the hardest retrieval case in this corpus, and it is concentrated almost
+entirely in the thesis set.
+
+The human grades match: every criterion scores lower on the thesis questions.
+
+| criterion | thesis (n=10) | quantum (n=24) |
+|---|---|---|
+| `coverage` | 2.50 | 3.21 |
+| `attribution` | 2.30 | 3.00 |
+| `hedging_accuracy` | 3.80 | 4.08 |
+| `synthesis` | 3.50 | 3.62 |
+
+**What is not established.** Whether the cross-literature structure *causes* the calibration
+divergence is unresolved. If it did, human grade spread should explain the direction, and it
+points opposite ways for the two criteria that diverge: `attribution` has *more* spread on the
+quantum set and *lower* agreement, `synthesis` has more spread and *higher* agreement. At n=10
+against n=24 a domain effect cannot be separated from small-sample noise, and this is recorded
+as an open question rather than an explanation.
+
+**One thing that is settled, because an earlier draft of this analysis got it wrong.** The
+thesis literature was fetched deliberately — `eval/gold/thesis_refs.txt` lists 37 references
+with fetch instructions, and at least 23 are present in the corpus by title. An identifier join
+returns zero because Semantic Scholar indexed many of them under a different DOI or an arXiv id
+than the thesis bibliography cites; that is a property of the join, not of the corpus. An
+earlier estimate that the corpus held "14 community-detection papers" came from a six-term
+keyword match and is superseded: with a proper term list, 34 of 354 papers (10%) touch that
+literature.
+
+### 5.3 The result
 
 Given in §1. Statistics are paired per query with repeats averaged **before** pairing: pooling
 three repeats as independent observations would treble the apparent n while the questions stay
 the same 34.
 
-### 5.3 By query type
+### 5.4 By query type
 
 | arm | lookup | open-dir | refutation | **relational** |
 |---|---|---|---|---|
@@ -252,7 +312,7 @@ the same 34.
 `agentic` is worst or near-worst on three of four types and first by a wide margin on the
 fourth.
 
-### 5.4 The required breakdown — does not support the mechanism
+### 5.5 The required breakdown — does not support the mechanism
 
 | | names a limit (n=5) | does not (n=9) |
 |---|---|---|
@@ -263,7 +323,7 @@ because that is where the missing `undercuts` edge would have been needed. It is
 none is named**. Pre-registered as underpowered, so this cannot refute the account — but it
 does not support it.
 
-### 5.5 The ablation
+### 5.6 The ablation
 
 Removing the critique costs relational 0.528 → 0.437: **+0.091, 8 / 1 / 5, p=0.043.**
 
@@ -272,14 +332,14 @@ Removing the critique costs relational 0.528 → 0.437: **+0.091, 8 / 1 / 5, p=0
 be worth 0.091, and no measure here says why it is. Under Bonferroni across the two
 pre-registered tests (α=0.025), this does not survive; §1's relational result does.
 
-### 5.6 Cost
+### 5.7 Cost
 
 **1.2×** — $0.028 against $0.024 per query. `vector_fulltext` sends 60 chunks to synthesis
 while the agentic arm sends a deduped set plus two `gpt-5.4-nano` calls, and those roughly
 cancel. An earlier estimate of 13× in the working notes was wrong: it compared against an
 Iteration 2 per-arm average instead of measuring the baseline.
 
-### 5.7 The judged criterion
+### 5.8 The judged criterion
 
 `coverage` scored on repeat 1 of each arm via `rejudge.py`, v1 rubric at temperature 0. Means
 in §1. Paired against `vector_fulltext`: all 34 **+0.21, p=0.143**; relational +0.29 (only 5
@@ -321,7 +381,7 @@ noting: `provides` is now a third of all traversal, a consequence of §9.2 routi
 `ReproducibilityArtifact` into most sections — spent budget under `max_nodes=150` on queries
 that are not about code availability, and a plausible reason the extra evidence did not convert.
 
-**(c) The gain does not concentrate where predicted** (§5.4).
+**(c) The gain does not concentrate where predicted** (§5.5).
 
 **(d) Plan quality does not predict outcome** (§4.3).
 
@@ -587,7 +647,7 @@ relational result (p=0.012) survives and §5.5's ablation (p=0.043) does not.
 **n=14 relational**, 5 of those in the required breakdown group.
 
 **One judged criterion, with almost no resolution.** `coverage` ties two-thirds of queries
-(§5.7).
+(§5.8).
 
 **Three repeats** bound the run-to-run spread; they cannot establish determinism. Temperature 0
 is not bit-determinism.
@@ -688,13 +748,116 @@ Tests: **42 → 230**, ruff and mypy clean.
 
 ---
 
-## 13. Carried forward
+## 13. Future work
+
+Ordered by how much each would change what this project can claim, not by effort.
+
+### 13.1 Cross-literature retrieval — the largest open lead
+
+§5.2 found that **7 of 10** thesis-topic questions require evidence from two disjoint
+literatures at once, against **1 of 24** for the general quantum questions, and that human
+grades are lower on exactly that set. A single similarity search embeds a question once and
+lands in one literature or the other, so these questions are structurally harder than
+anything the retrieval arms were designed for.
+
+Three things follow, none of them tested:
+
+- **Does decomposition help disproportionately here?** The agentic arm searches several times,
+  so in principle it can reach both literatures where one search cannot. This is a hypothesis
+  generated *after* seeing the data, so testing it on the same 34 questions would be
+  post-hoc fishing. It needs new questions written for the purpose.
+- **Retrieval that deliberately spans.** Nothing in the system tries to cover more than one
+  literature — an arm that searches each sub-question against each literature separately, or
+  that balances its results across them, is unbuilt.
+- **A corpus balanced for the use case.** 34 of 354 papers (10%) touch the thesis literature
+  while it supplies 29% of the questions. Whether that ratio matters is unmeasured, and
+  measuring it is cheap: fetch more of that literature and re-run.
+
+### 13.2 Why decomposition works — the mechanism is still unknown
+
+§6 refutes the account this iteration was built around, and §4.3 rules out the obvious
+replacement: plan quality does not predict outcome. What survives is a hypothesis — that the
+gain comes from *asking a question in parts at all*, rather than from asking well.
+
+The experiment that separates them is small: **an arm that splits mechanically on
+conjunctions**, with no planner and no model call in the planning step. If it matches the
+agentic arm, planning is decoration and the finding is about decomposition. If it does not,
+the planner is doing something the trajectory measures failed to capture.
+
+### 13.3 Why the self-critique is worth 0.091
+
+It changes the evidence on 31–33 of 34 questions and adds a *required* paper on 4–7 (§5.6,
+§4.3). A step that rarely reaches new required papers should not be worth that much. Either
+the mechanism is something other than reaching new papers — re-ranking, or changing which
+passages the writing step attends to — or the effect is noise that three repeats did not
+resolve.
+
+### 13.4 Global sensemaking, and evaluating GraphRAG-style approaches
+
+§11 states that this work does not evaluate graph-based global summarisation, and that this
+gold set could not. Doing so needs three new things, in order:
+
+1. **A global question type** — *"what are the main themes in this literature"*, *"how has the
+   field's view of X shifted"* — where no small set of papers is the answer.
+2. **A metric family that fits it.** `must_cite_recall` is structurally inapplicable; a good
+   global answer might cite forty papers or none in particular. Whether to accept judged
+   pairwise comparison, or to invest in deterministic gold such as authored theme lists, is
+   the substantive decision.
+3. **Only then** the implementation: hierarchical community detection over the existing graph,
+   community summaries, and a map-reduce over them.
+
+Building it before the measurement exists would produce a capability with nothing to say about
+it, which is the failure mode this project has spent three iterations avoiding.
+
+### 13.5 Phase 2 — portability to hosted stores
+
+Deferred from the Iteration 3 plan as *"a deployment concern on its own axis, doable at any
+iteration and belonging to none"*. `stores/base.py` defines `VectorStore`, `GraphStore` and
+`Embedder` as abstract interfaces, so moving from Kuzu and faiss to Neo4j AuraDB and Qdrant is
+a configuration swap behind existing boundaries rather than a rewrite.
+
+It changes no result and answers no research question. Its value is that it makes the system
+usable by someone other than its author, and it tests whether the abstraction boundaries
+Iteration 1 paid for actually hold. The honest expectation is that they mostly do and that a
+few Kuzu-specific queries in `typed_graph.py` and `citation_graph.py` will need rewriting.
+
+Best done alongside §13.6, since both are about the system being reproducible by others rather
+than about what it measures.
+
+### 13.6 Local inference (§3.3), and reproducibility by others
+
+The remaining piece of §3.3 is one run on hardware with a CUDA GPU — a configuration change
+plus roughly two hours, at a few dollars of rented time. It completes the portability claim
+that the system can run without a hosted provider.
+
+Alongside it, two gaps that stop anyone else reproducing these figures:
+
+- **The measured artifacts are not in the repository.** The graph, the extractions and all 20
+  run directories behind these numbers are gitignored and local. The scored runs are small and
+  are the evidence for every table here.
+- **Iteration 2's substrate is a local backup.** Its numbers are reproducible only from a
+  directory that exists on one machine.
+
+### 13.7 Measurement debts
+
+- **Sixty human contradiction labels** on the original audit sample would replace §8.2's
+  model-labelled 32.5% with a human figure. §9.1 showed the two agree on fresh pairs, so this
+  is a strengthening rather than a correction.
+- **More refutation questions.** `refutation_handling` is uncalibrated at n=9 on the 34 and
+  unmeasurable at n=3 on the active 10. No judge work fixes that; the gold set needs more
+  questions that encode a known disagreement.
+- **Inter-annotator agreement remains permanently out of reach** on a single-person project
+  (§9.4). If a second reader ever becomes available, the sample and the scoring already exist.
+
+---
+
+## 14. Carried forward
 
 | item | why it is open |
 |---|---|
 | §3.3's vLLM run | needs CUDA hardware; config change plus one run (§8) |
 | A mechanically-splitting arm | would separate "splitting helps" from "planning helps" (§6) |
-| Why the critique is worth +0.091 | changes the evidence 31–33 times, adds a required paper 4–7 (§5.5) |
+| Why the critique is worth +0.091 | changes the evidence 31–33 times, adds a required paper 4–7 (§5.7) |
 | Global-sensemaking queries and metrics | prerequisite for evaluating anything GraphRAG-shaped (§11) |
 | 60 human contradiction labels | would upgrade §8.2's model-labelled figure on the original sixty |
 | Committing the scored runs | the evidence behind every figure here is local only (§11) |
