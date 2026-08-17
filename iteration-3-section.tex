@@ -1,0 +1,444 @@
+% ----------------------------------------------------------------------
+%  Iteration 3 --- drop-in section for research-paper-synthesis-graph.tex
+%  Requires only the existing preamble (enumitem, hyperref, xcolor).
+%  Tables are plain `tabular`; no booktabs needed.
+% ----------------------------------------------------------------------
+\section{Iteration 3}
+
+Iteration 2 asked whether a typed knowledge graph retrieves better than
+vector search. It answered \emph{no}, and diagnosed its worst case ---
+relational queries at 0.202 --- as missing \texttt{undercuts} edges.
+Iteration 3 changes the question from \emph{what does the system know} to
+\emph{what does the system do}: decompose a query into sub-questions,
+retrieve for each part, critique the evidence against the plan, re-retrieve
+the gaps, and synthesise. It then asks whether acting beats the static arms
+on the same gold set.
+
+\subsection{Design/Coding Process}
+
+\subsubsection*{The claim was fixed before the measurement}
+
+The acceptance criterion and the \emph{suspicious} outcome were both written
+down before the arm was run. A uniform gain across all query types was
+pre-registered as evidence \emph{against} the hypothesis, on the reasoning
+that decomposition issues more retrievals and more retrieval helps
+everything --- so a gain that appeared everywhere would indicate volume
+rather than planning. Two statistical tests were pre-registered, which fixes
+the multiple-comparison correction in advance rather than choosing it once
+the p-values are visible.
+
+This matters because the result landed exactly on that pre-registered shape:
+
+\begin{center}
+\begin{tabular}{lrrr}
+\hline
+ & $\Delta$ vs static & W / L / T & $p$ \\
+\hline
+all 34 queries          & $+0.059$ & 12 / 9 / 13 & 0.403 \\
+relational ($n=14$)     & $+0.250$ & 8 / 1 / 5   & \textbf{0.012} \\
+non-relational ($n=20$) & $-0.075$ & 4 / 8 / 8   & 0.340 \\
+\hline
+\end{tabular}
+\end{center}
+
+The overall figure is a null. The effect lives entirely in the relational
+subset, and the arm is measurably \emph{worse} everywhere else --- which is
+what makes it credible rather than disappointing. Cost was $1.2\times$
+(\$0.028 against \$0.024 per query), not the order of magnitude the plan had
+anticipated.
+
+\subsubsection*{Three properties carry the comparison's validity}
+
+The arm sits behind the existing \texttt{System} protocol, so the evaluation
+runner scored it without modification. Three construction decisions exist
+purely so that the comparison isolates one variable:
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Synthesis is the static arm's code, not a copy of it.} The
+        agentic arm holds a \texttt{VectorRAGSystem} instance and calls its
+        evidence formatting, handle resolution and synthesis directly, so the
+        prompt and the citation-handle scheme are identical \emph{by
+        construction} rather than by inspection. A test pins the function
+        identity, so a future edit cannot silently fork them. The variable
+        under test is the control flow and nothing else.
+  \item \textbf{The retrieval budget binds.} Six retrievals per query,
+        \emph{refused} rather than logged when exceeded, and at
+        \texttt{top\_k = 20} rather than 60 --- so several small retrievals
+        stay within the same order of evidence as one large static retrieval.
+        A budget that warns instead of refusing is not a budget.
+  \item \textbf{It fails closed.} A planner that raises, or returns an empty
+        plan, degrades to a single retrieval on the original query and sets a
+        \texttt{planner\_failed} flag. Without this a broken planner scores as
+        a working one, because the fallback path still produces an answer.
+\end{enumerate}
+
+\subsubsection*{The determinism problem, and why the fix had to be architectural}
+
+Three sampling defects were found before anything was measured, each the same
+defect in a different layer, and each had been turning a reported figure into
+a single draw:
+
+\begin{enumerate}[label=\arabic*.]
+  \item The \textbf{judge} ran at the provider default temperature (1.0).
+        Nothing in the project had ever set one. Judging the same 34 answers
+        three times with an identical rubric produced $\kappa$ spreads up to
+        0.25, against a 0.26 gap to the trust threshold --- so the noise was
+        the same size as the decision.
+  \item \textbf{Extraction} had the same defect, meaning the entire graph was
+        unreproducible. Extracting the same 21 papers twice from one prompt
+        differed on 9 of 147 field outcomes.
+  \item The \textbf{planner} is nondeterministic and pinning does not fix it.
+\end{enumerate}
+
+The third case is the interesting one. \texttt{gpt-5.4-nano} does not return
+identical text at temperature 0, and in an agentic arm \emph{the planner's
+output is the retrieval query}. A reworded sub-question embeds differently,
+reaches different chunks, and changes which papers can be cited. A static arm
+embeds a fixed gold query and absorbs that noise; this arm amplifies it.
+Measured: \texttt{must\_cite\_recall} of 0.567 and 0.333 across two runs of
+functionally identical code.
+
+No temperature setting can fix a component whose output is prose that must
+then be embedded. The fix was therefore structural --- the arm now always
+retrieves on the \textbf{original query} first, so the plan moves the margin
+of the evidence set rather than the whole of it:
+
+\begin{center}
+\begin{tabular}{lccc}
+\hline
+ & run 1 & run 2 & run 3 \\
+\hline
+with anchor    & 0.417 & 0.417 & 0.417 \\
+without anchor & 0.367 & 0.383 & 0.417 \\
+\hline
+\end{tabular}
+\end{center}
+
+Spread $0.050 \rightarrow 0.000$. The change was adopted on a stopping rule
+stated \emph{before} it was made --- keep it only if it narrows the spread ---
+so the decision could not be rationalised after seeing the numbers.
+
+The corpus was then rebuilt (271 papers, extraction pinned at temperature 0).
+That moved the substrate further than intended: \texttt{Claim} nodes $+44\%$,
+nodes $23{,}689 \rightarrow 27{,}777$, edges $11{,}131 \rightarrow 14{,}978$.
+Iteration 2's stored figures do not describe this substrate, which is stated
+rather than quietly absorbed.
+
+\subsubsection*{The required ablation}
+
+Removing the self-critique drops relational performance from 0.528 to 0.437 ---
+back among the static arms ($+0.091$, 8 wins / 1 loss / 5 ties, $p = 0.043$).
+Under Bonferroni across the two pre-registered tests ($\alpha = 0.025$) this
+does \emph{not} survive, while the relational-versus-baseline result
+($p = 0.012$) does. Both are reported at their corrected significance rather
+than at the uncorrected one.
+
+The critique's contribution is also \emph{unexplained}: it changes the
+evidence on 31--33 of 34 queries but adds a \emph{required} paper on only
+4--7. A step that rarely reaches new required papers should not be worth
+0.091, and the trajectory measures do not say why it is.
+
+\subsubsection*{The proposed mechanism was refuted}
+
+Iteration 2 proposed that decomposition works by \emph{substituting} for the
+missing \texttt{undercuts} edges --- the second hop becomes a second query
+instead of a graph traversal. Three independent measurements test that
+account and none supports it:
+
+\begin{enumerate}[label=(\alph*)]
+  \item \textbf{Adding the edges does not work.} Rewriting the contradiction
+        prompt with the twelve labelled spurious edges as worked negatives held
+        edge precision at $32.5\%$ --- identical stratum rates under both
+        prompts --- while discarding roughly $65\%$ of the real edges.
+  \item \textbf{Edge coverage was not the binding constraint.} The rebuild took
+        \texttt{undercuts} from 33 to 119 and traversal from \emph{zero}
+        occurrences across 34 queries to six. The typed-graph arm scored
+        $0.383 \rightarrow 0.383$, unchanged to three decimal places. The gap
+        was real; closing it changed nothing.
+  \item \textbf{The gain does not concentrate where the account predicts.}
+        Splitting the relational queries on whether their gold claims name a
+        limitation or cost gives $+0.167$ where one is named against $+0.296$
+        where none is --- the gain is \emph{larger} where the account says it
+        should be smaller. Pre-registered as underpowered at 5/9 before the
+        numbers were seen, so it cannot refute the account, but it does not
+        support it.
+\end{enumerate}
+
+Separately, \emph{plan quality does not predict outcome}. Across three
+independent runs, decomposition specificity correlates with
+\texttt{must\_cite\_recall} at $\rho = -0.16, -0.08, -0.16$
+($p = 0.375, 0.654, 0.369$). How distinctive a plan is carries no information
+about whether the query is answered well.
+
+What survives as an untested hypothesis: the gain comes from issuing several
+retrievals against the \emph{parts} of a question, not from the plan being
+good. Volume alone cannot explain it, since the arm is worse on
+non-relational queries while spending the same retrievals there. So it
+appears to be the act of splitting rather than the craft of the split. An arm
+that splits mechanically on conjunctions, with no planner at all, would
+separate the two --- and is carried forward.
+
+\subsubsection*{Query-time writes, and an invariant that was never enforced}
+
+The agent persists its decomposition as \texttt{STAGED} nodes with
+provenance: the query, its sub-questions, and per sub-question the papers it
+reached. That last field records which papers \emph{jointly} bear on one part
+of a question --- something per-paper extraction structurally cannot observe,
+because it never holds two papers at once.
+
+Building it surfaced a latent safety defect. The store interface had promised
+since Iteration 1 that metrics query \texttt{CURATED} only. Neither retrieval
+arm actually filtered on the layer. The promise held solely because nothing
+had ever written a \texttt{STAGED} node --- it was \emph{vacuously} true, and
+the first query-time write would have made it false, letting an agent raise
+its own score by writing to the graph it is scored against. Acceptance was
+demonstrated with real staged data rather than argued:
+
+\begin{center}
+\begin{tabular}{lrr}
+\hline
+ & filtered & unfiltered \\
+\hline
+before staging & 20{,}688 & 20{,}688 \\
+after staging 38 nodes & 20{,}688 & 20{,}726 \\
+\hline
+\end{tabular}
+\end{center}
+
+Promotion from staged to curated is now gated behind an explicit approval
+flag.
+
+\subsubsection*{One deliverable kept with its justification refuted}
+
+Local inference was planned on the assumption of a loop issuing 5--10 calls
+per query and an affordability problem. The measured arm makes \textbf{three}
+calls at \$0.028 per query, and the whole deliverable cost about \$6. There
+was no cost problem to solve, so the stated rationale is refuted.
+
+The item was kept anyway, because its acceptance criterion is a
+\emph{portability} claim that nothing else in the iteration addresses. The
+plumbing is landed --- vLLM serves the OpenAI API, so ``route calls to vLLM''
+reduces to ``point an OpenAI client elsewhere''. What waits is the run, and
+the blocker is hardware rather than software: the target 14B model needs
+about 8.5\,GB in 4-bit with CUDA-only kernels, against an 8\,GB machine whose
+usable working set caps near 5.3\,GB. Recording the refuted justification
+separately from the surviving goal keeps the plan auditable.
+
+\subsection{Terms}
+
+\begin{enumerate}[label=\arabic*.]
+  \item \textbf{Planner--critic loop} --- an agentic control flow in which the
+        system first plans (decomposes a query into sub-questions), acts
+        (retrieves per sub-question), then critiques its own evidence against
+        the plan and re-retrieves what is missing, before synthesising. The
+        contrast is a \emph{static} arm: one retrieval, one synthesis, no
+        self-inspection.
+  \item \textbf{Anchored retrieval} --- always retrieving on the original,
+        unmodified query in addition to the planner's sub-questions. Introduced
+        because a planner's output \emph{is} a retrieval query, so its
+        nondeterminism otherwise propagates into which papers are reachable.
+        The anchor confines plan variation to the margin of the evidence set.
+  \item \textbf{Fail closed} --- degrading to a safe, clearly-marked fallback
+        when a component fails, rather than producing output that is
+        indistinguishable from success. Here: a failed planner falls back to a
+        single retrieval and sets a flag, so a broken planner cannot be scored
+        as a working one.
+  \item \textbf{CURATED / STAGED layers} --- the provenance split on every
+        graph node and edge. \texttt{CURATED} is offline, reviewed material and
+        is the only layer metrics may read; \texttt{STAGED} is anything the
+        agent writes at query time, and is never merged automatically.
+        Promotion between them requires explicit approval.
+  \item \textbf{Trajectory evaluation} --- scoring the \emph{process} rather
+        than the answer: whether the plan was well-formed, how efficiently
+        retrieval reached required papers, what the critique changed. Its
+        purpose is to explain \emph{why} an arm wins, which an outcome metric
+        cannot.
+  \item \textbf{Decomposition specificity} --- whether a plan's sub-questions
+        match their own query's facets better than they match any other query's
+        facets. Replaced a naive coverage measure that read 1.000 on every
+        facet; measuring the null showed 100\% of \emph{unrelated} query--plan
+        pairs also passing, so the original measure was detecting nothing.
+  \item \textbf{Retrieval efficiency} --- required papers reached per retrieval
+        call. Reported with its definitional overlap stated: it counts papers
+        \emph{reached} while the headline metric counts papers \emph{cited}, so
+        the two share a numerator term and part of their correlation is built
+        in.
+  \item \textbf{Pre-registration} --- writing the acceptance criterion, the
+        planned statistical tests, and the outcomes that would count as
+        \emph{evidence against} the hypothesis, before running the experiment.
+        It is what allows a null overall result with a positive subgroup result
+        to be reported as a finding rather than as a subgroup fished out
+        afterwards.
+  \item \textbf{Bonferroni correction} --- dividing the significance threshold
+        by the number of pre-registered tests, so that running several tests
+        does not inflate the chance that one passes by luck. At two tests the
+        threshold becomes $\alpha = 0.025$.
+  \item \textbf{Quadratic-weighted $\kappa$} --- agreement between two raters
+        on an ordinal scale, corrected for agreement expected by chance, and
+        penalising disagreements by the \emph{square} of their distance so that
+        near-misses cost little. Preferred over correlation because the criteria
+        are 1--5 levels: a judge that ranks answers identically but sits a point
+        low has high correlation and mediocre $\kappa$, and those two failures
+        need different fixes (rescaling versus a rubric rewrite).
+  \item \textbf{Test--retest reliability} --- having one grader re-grade the
+        same answers after an interval, giving a ceiling on how well \emph{any}
+        automated judge could agree with them. Used here because the project has
+        a single grader, so a second-annotator measure is permanently
+        unavailable; it established that one criterion was already at the human
+        ceiling and no rubric could have improved it.
+  \item \textbf{Temperature} --- the sampling parameter controlling randomness
+        in a model's output. A provider default of 1.0 makes every reported
+        figure one draw from a distribution; pinning it to 0 is a precondition
+        for a number being a measurement rather than a sample.
+  \item \textbf{vLLM} --- a high-throughput local inference server that exposes
+        an OpenAI-compatible API, so switching a client from a hosted provider
+        to local hardware is a base-URL change rather than a rewrite.
+\end{enumerate}
+
+\subsection{Fixes}
+
+Twenty-eight defects were found and fixed during the iteration. One pattern is
+worth naming ahead of the list: \textbf{seven of them produced a plausible
+number rather than an error}, and in four cases the thing that caught a later
+mistake was a fix that had looked like housekeeping when it was made. A defect
+that crashes is cheap; a defect that returns 0.000, or 32.5\%, or ``all facets
+covered'', is expensive precisely because nothing signals it.
+
+\subsubsection*{Sampling was never disabled (7)}
+
+\begin{enumerate}[label=A\arabic*.]
+  \item The judge ran at the provider default temperature. Found by judging the
+        same 34 answers three times with one rubric: $\kappa$ spread to 0.25
+        against a 0.26 gap to the trust bar.
+  \item Extraction had the same defect, so the graph itself was
+        unreproducible. Two extractions of 21 papers differed on 9 of 147 field
+        outcomes. Pinned \emph{before} the corpus rebuild, so the rebuild
+        happened once.
+  \item The planner is nondeterministic and pinning cannot fix it, because its
+        output is the retrieval query. Fixed architecturally by the anchor.
+  \item Criteria were being certified from a single draw. A \texttt{-{}-repeats}
+        mode was added, and certification now requires the \emph{worst} sample
+        to clear the bar --- certifying on the best or median draw is what makes
+        a lucky sample look trustworthy.
+  \item The judge's per-criterion justifications were requested and then
+        discarded. This is the only reason a later rubric defect was
+        diagnosable: the saved reasons showed it penalising a correctly reused
+        citation handle. A score cannot explain itself.
+  \item There was no way to re-score stored answers, so a rubric change could
+        not be isolated from resampled synthesis. A re-judge tool now re-grades
+        answers on disk and never modifies the source run.
+  \item Rubric versions were not retained, leaving no control arm. Version 1 was
+        kept and made selectable --- and then \emph{scored best of three}, so the
+        default was set back to it, with a test recording why.
+\end{enumerate}
+
+\subsubsection*{Gold-set handling (3)}
+
+\begin{enumerate}[label=B\arabic*.]
+  \item Scripts defaulted to the 10-query file even for a 34-query run, which
+        would have scored a third of the data and reported it as the whole. Now
+        auto-selects the smallest covering file, and errors if none covers.
+  \item Calibration figures depended on which gold set was used, unstated --- and
+        the sets disagree on which criteria pass. Calibration now always prints
+        the complement subset beside the one it calibrated on, so a figure can
+        never be quoted without its denominator.
+  \item The evaluation entry point hardcoded the active gold file. A
+        \texttt{-{}-gold} flag was added and non-default runs are tagged in the
+        run directory name.
+\end{enumerate}
+
+\subsubsection*{The reproducibility layer --- three faults, not one (3)}
+
+\begin{enumerate}[label=C\arabic*.]
+  \item The artifact node type was reachable from only two section types, while
+        four of the five gold papers that state a code URL state it elsewhere.
+  \item The field-list hint was gated on a different node type, so a section
+        could be asked for the node type while being told nothing about which
+        attributes to fill.
+  \item The schema had no member for the phrasing 15 corpus papers actually
+        use, which made two authored gold values \emph{unscoreable by any
+        extraction} --- a ceiling of 4/6 before the extractor was involved.
+\end{enumerate}
+
+Result: two fields moved from zero correct to two each; total correct 8 to 11.
+The item had been carried forward as a single routing gap; it was three
+independent faults, only one of which was the named one.
+
+\subsubsection*{Contradiction tooling (4)}
+
+\begin{enumerate}[label=D\arabic*.]
+  \item The verdict cache key recorded the claim pair but not the prompt
+        version, so a version-2 run would have returned 16,965 \emph{version-1}
+        verdicts and reported them as version 2's. One command away from a false
+        finding.
+  \item The scoring path read the accepted-edge total from the old edge file
+        regardless of what it was auditing, reporting ``of 3,072 accepted'' for
+        a pass that accepted 1,172.
+  \item Input and output files were hardcoded, so auditing a second attempt
+        would have destroyed the record of the first.
+  \item The labeller used for the original audit had never itself been
+        validated. A validation mode was added and the labeller \emph{immediately
+        failed} it: 76.7\% agreement, but only 2 of 15 real disagreements found
+        --- a labeller that answers ``neither'' to everything reports low
+        precision regardless of the truth. Without this check the number would
+        have been reported.
+\end{enumerate}
+
+\subsubsection*{A safety invariant that was never enforced (3)}
+
+\begin{enumerate}[label=E\arabic*.]
+  \item The typed-graph arm did not filter on layer --- in \emph{two} places,
+        seeding and expansion, either of which leaves a route in.
+  \item The citation-graph arm had the same gap in both places.
+  \item Promotion from staged to curated had no approval gate, so unreviewed
+        material could enter the scored layer. It now refuses without an
+        explicit flag.
+\end{enumerate}
+
+Stated as an honest limit: the acceptance experiment exercised the \emph{node}
+filter; the edge filter is a second lock and was not exercised, because staged
+edges currently connect only to staged nodes.
+
+\subsubsection*{Trajectory measures (2)}
+
+\begin{enumerate}[label=F\arabic*.]
+  \item Gold identifiers carry a \texttt{paper:} prefix while the trace records
+        bare identifiers, so the intersection was empty for every query and
+        retrieval efficiency read \textbf{0.000 as a plausible number rather
+        than an error}. The strongest argument for building the trajectory
+        measures before the experiment that consumes them.
+  \item Decomposition coverage read 1.000 on all 29 facets. Measuring the null
+        --- each facet against every \emph{other} query's plan --- gave 0.769
+        against 0.808 matched, with 100\% of unrelated pairs passing at the
+        default threshold. Replaced by a paired specificity measure plus a
+        validity check that prints before the scores.
+\end{enumerate}
+
+\subsubsection*{Plumbing (5)}
+
+\begin{enumerate}[label=G\arabic*.]
+  \item Per-paper flags on the extraction entry point, which prices a routing
+        change at about \$0.36 instead of \$6.72.
+  \item An optional trajectory field on the system output plus runner
+        persistence; static arms leave it empty so their traces stay
+        byte-identical and remain directly comparable.
+  \item The report writer made public, so the re-judge tool renders its means
+        identically --- a re-judged run that reported differently would not be
+        comparable to the run it re-scores.
+  \item Base-URL and temperature threaded through the LLM layer and all three
+        clients.
+  \item Gold-set resolution moved into the schema module, since two scripts need
+        it and the scripts directory is not importable.
+\end{enumerate}
+
+\subsubsection*{Documentation that contradicted the measurements (2)}
+
+\begin{enumerate}[label=H\arabic*.]
+  \item The README certified one judge criterion and rejected another --- both
+        backwards --- and carried a stale query count, node count, test count and
+        ``next iteration''. Its opening still asserted the typed-graph bet as
+        untested after two iterations had tested it.
+  \item The co-citation section explained how it had made the typed-versus-citation
+        ablation fair, and never recorded that the ablation was subsequently
+        lost.
+\end{enumerate}

@@ -252,7 +252,7 @@ found the honest answer was *nothing changed*.
 
 ---
 
-## 3.6 Maintenance track — **closed**; see [iteration-3-maintenance.md](iteration-3-maintenance.md)
+## 3.6 Maintenance track — **closed**; results in [§9 of the report](iteration-3-report.md)
 
 All four ran. Three of four hypotheses are refuted, and in every item the binding constraint
 turned out to be the measuring instrument rather than the thing being measured — judge
@@ -303,7 +303,7 @@ There is no such thing as re-extracting to pick up one fix.
 So it happens once, after 3.5, with every arm re-run together — not as a side effect of a
 maintenance item. Until then §7's `code_url` 0-for-15 stands as the *reported* figure, with
 the fix recorded as measured-but-unapplied in
-[iteration-3-maintenance.md](iteration-3-maintenance.md).
+[§9 of the Iteration 3 report](iteration-3-report.md).
 
 ---
 
