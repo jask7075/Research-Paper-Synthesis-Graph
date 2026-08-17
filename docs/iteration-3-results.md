@@ -96,6 +96,51 @@ retrieval on the whole question retrieves for neither half well. That would pred
 any multi-part question regardless of whether the second part concerns a limitation — which
 is what the 5/9 split shows.
 
+## §3.4 on the scored runs — the plan's quality does not predict the outcome
+
+Trajectory eval over the three `agentic` repeats, n=34 each. Both figures replicate:
+
+| measure | vs `must_cite_recall` | p | replicates |
+|---|---|---|---|
+| `decomposition_specificity` | ρ = −0.16, −0.08, −0.16 | 0.375, 0.654, 0.369 | **no relationship, 3/3** |
+| `retrieval_efficiency` | ρ = +0.40, +0.43, +0.44 | 0.019, 0.010, 0.010 | **significant, 3/3** |
+
+```
+decomposition specificity   0.238  0.216  0.213      (chance is ~0.03 with 33 rivals)
+retrieval efficiency        0.227  0.247  0.232      required papers per retrieval call
+critique added a REQUIRED paper   4/34   7/34   6/34
+critique changed the evidence    31/34  33/34  33/34
+```
+
+**The null is the informative one.** How distinctive a plan is — whether its sub-questions
+match its own query's facets better than any of the other 33 queries' plans do — carries **no
+information** about whether the query gets answered well. Consistently slightly negative,
+never significant, across three independent runs.
+
+That closes off the obvious reading of §3.5's result. The +0.250 relational gain is **not**
+explained by the agentic arm writing better plans, because plan quality does not predict
+outcome at all.
+
+**The surviving correlate is `retrieval_efficiency`**, and it must be read with its
+definitional overlap stated: it counts required papers *reached* per retrieval call, while
+`must_cite_recall` counts required papers *cited*. They share a numerator term. The
+correlation is therefore partly built in — though not wholly, since reaching a paper does not
+imply citing it, and Iteration 2 measured exactly that gap (typed-graph retrieval reached
+0.556 of required pairs and converted 33% into citations).
+
+**What the two results together suggest**, as a hypothesis and not a conclusion: the gain
+comes from *issuing several retrievals against the parts of a question* rather than from the
+plan being good. Volume alone cannot be the explanation — §3.5 shows the arm is **worse** on
+non-relational queries despite spending the same retrievals there. So it is the act of
+splitting a multi-part question, not the craft of the split, that appears to matter. That is
+testable and untested: an arm that splits mechanically on conjunctions, with no planner at
+all, would separate the two.
+
+**The critique's contribution stays puzzling.** It changes the evidence on 31–33 of 34
+queries but adds a *required* paper on only 4–7, and yet removing it costs 0.091 on relational
+(p=0.043). A step that rarely reaches new required papers should not be worth that much, and
+this measurement does not explain why it is.
+
 ## Threats
 
 - **Multiple comparisons.** Two comparisons were pre-registered: against the baseline and the
