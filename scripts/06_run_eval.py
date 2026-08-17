@@ -18,22 +18,11 @@ from rpsg.eval.gold_schema import load_gold
 from rpsg.eval.runner import run_system
 from rpsg.llm.usage import USAGE
 from rpsg.logging import get_logger
-from rpsg.retrieval.agentic import AgenticSystem
-from rpsg.retrieval.baselines import System, VectorRAGSystem
-from rpsg.retrieval.citation_graph import CitationGraphSystem
-from rpsg.retrieval.typed_graph import TypedGraphSystem
+from rpsg.retrieval.build import SYSTEMS as _SYSTEMS
+from rpsg.retrieval.build import build_system
 from rpsg.stores.embedder import HashEmbedder, SentenceTransformerEmbedder
-from rpsg.stores.graph_store import KuzuGraphStore
-from rpsg.stores.vector_store import FaissVectorStore
 
 log = get_logger(__name__)
-
-_CORPUS = {"vector_abstract": "abstract", "vector_fulltext": "fulltext"}
-_SYSTEMS = (*_CORPUS, "typed_graph", "typed_graph_chunks",
-            "citation_graph", "citation_graph_seeded",
-            # 3.1. `_no_critique` is §3.5's required ablation: without it, "the loop helps"
-            # cannot be separated from "planning helps".
-            "agentic", "agentic_no_critique")
 
 
 def main() -> None:
@@ -69,68 +58,18 @@ def main() -> None:
             settings.embeddings.model_name, settings.embeddings.dim, settings.embeddings.batch_size
         )
     )
-    system: System
-    if args.system.startswith("agentic"):
-        # Same vector index and corpus as `vector_fulltext`, so 3.5's comparison isolates
-        # the loop rather than the retrieval substrate.
-        vs = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
-        vs.load()
-        kwargs = {}
-        if args.max_retrievals is not None:
-            kwargs["max_retrievals"] = args.max_retrievals
-        system = AgenticSystem(
-            name=args.system,
-            embedder=embedder,
-            store=vs,
-            corpus="fulltext",
-            graph_store=(
-                None if args.no_graph_hints else KuzuGraphStore(str(settings.paths.kuzu_db))
-            ),
-            critique=not args.system.endswith("_no_critique"),
-            stage_writes=args.stage_writes,
-            anchor=not args.no_anchor,
-            **kwargs,
-        )
-    elif args.system.startswith("citation_graph"):
-        # The ablation: `cites` edges from S2 metadata instead of extracted typed edges,
-        # everything else held constant. `_seeded` starts from vector retrieval rather
-        # than title similarity, so the pair separates "citations are weak" from "title
-        # seeding is weak".
-        vs = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
-        vs.load()
-        system = CitationGraphSystem(
-            name=args.system,
-            embedder=embedder,
-            store=KuzuGraphStore(str(settings.paths.kuzu_db)),
-            vector_store=vs,
-            seed_from="chunks" if args.system.endswith("_seeded") else "title",
-        )
-    elif args.system.startswith("typed_graph"):
-        # Reads the graph, not the vector index. `hops` and `max_nodes` take the module
-        # defaults, both set from the retrieval sweep rather than chosen.
-        routed = args.system == "typed_graph_chunks"
-        vs = None
-        if routed:
-            # Router variant: traversal picks the papers, chunks supply the evidence, so
-            # both arms are compared on the same evidence unit.
-            vs = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
-            vs.load()
-        system = TypedGraphSystem(
-            name=args.system,
-            embedder=embedder,
-            store=KuzuGraphStore(str(settings.paths.kuzu_db)),
-            vector_store=vs,
-        )
-    else:
-        vector_store = FaissVectorStore(str(settings.paths.vector_index), settings.embeddings.dim)
-        vector_store.load()
-        system = VectorRAGSystem(
-            name=args.system,
-            embedder=embedder,
-            store=vector_store,
-            corpus=_CORPUS[args.system],
-            top_k=args.top_k,
-        )
+    # Shared with `scripts/ask.py`, so the arm scored here and the arm asked interactively
+    # are configured by the same code. `top_k` reaches the vector arms only; see
+    # `rpsg.retrieval.build`.
+    system = build_system(
+        args.system,
+        embedder=embedder,
+        top_k=args.top_k,
+        max_retrievals=args.max_retrievals,
+        graph_hints=not args.no_graph_hints,
+        anchor=not args.no_anchor,
+        stage_writes=args.stage_writes,
+    )
 
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     tag = "" if args.gold == "queries.jsonl" else f"_{Path(args.gold).stem}"
