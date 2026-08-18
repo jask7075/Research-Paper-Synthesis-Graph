@@ -138,7 +138,13 @@ def test_an_unapproved_edge_set_is_not_applied_to_the_graph(tmp_path, monkeypatc
     import json
     import logging
 
-    spec = importlib.util.spec_from_file_location("stage05", "scripts/05_build_stores.py")
+    # Located from the repository root rather than the working directory: a CWD-relative
+    # path passes under `pytest` from the root and fails anywhere else, making the test a
+    # property of where it was run. `rpsg.config.PROJECT_ROOT` is derived from __file__.
+    from rpsg.config import PROJECT_ROOT
+
+    stage05 = PROJECT_ROOT / "scripts" / "05_build_stores.py"
+    spec = importlib.util.spec_from_file_location("stage05", stage05)
     stage05 = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(stage05)
 

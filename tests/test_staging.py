@@ -134,9 +134,14 @@ def test_both_retrieval_arms_filter_on_source_layer() -> None:
     unfiltered traversal would let an agent raise its own score by writing to the graph."""
     from pathlib import Path
 
+    import rpsg.retrieval
+
+    # Resolved from the installed package, not from the working directory. A CWD-relative
+    # path passes under `pytest` from the repository root and fails anywhere else, which
+    # makes the test a property of where it was run rather than of the code.
+    pkg = Path(rpsg.retrieval.__file__).parent
     for module in ("typed_graph.py", "citation_graph.py"):
-        src = Path("src/rpsg/retrieval") / module
-        text = src.read_text()
+        text = (pkg / module).read_text()
         assert "source_layer = $curated" in text, f"{module} does not filter on source_layer"
 
 
