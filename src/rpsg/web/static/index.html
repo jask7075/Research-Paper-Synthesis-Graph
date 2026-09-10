@@ -1,0 +1,446 @@
+<!doctype html>
+<!--
+  The whole front end. No build step and no CDN: the page is served from localhost beside
+  the index it queries, so a network dependency would only add a way for it to fail.
+
+  It talks to two endpoints — GET /api/arms to populate the picker, POST /api/ask to ask —
+  and renders exactly what the CLI prints: the answer, what it was grounded on, the
+  retrieval, the agentic trajectory, and what the question cost.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RPSG — ask the corpus</title>
+<style>
+  :root {
+    --bg: #fbfaf8;
+    --panel: #ffffff;
+    --ink: #1b1a18;
+    --muted: #6b6862;
+    --line: #e3e0da;
+    --accent: #7a4b2a;
+    --accent-soft: #f3ece5;
+    --warn-bg: #fdf1ee;
+    --warn-line: #e5b8ab;
+    --warn-ink: #8c3418;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a;
+      --panel: #1e2024;
+      --ink: #e8e6e2;
+      --muted: #9a978f;
+      --line: #32353b;
+      --accent: #d99b6c;
+      --accent-soft: #2a2520;
+      --warn-bg: #2d1d18;
+      --warn-line: #6b3527;
+      --warn-ink: #f0a68c;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* `display: flex` on the controls below outranks the browser's own
+     `[hidden] { display: none }`, so hiding the agentic-only fields needs this. */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 20px 80px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px; margin-top: 16px;
+  }
+  textarea {
+    width: 100%; min-height: 78px; resize: vertical; padding: 11px 12px;
+    font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  textarea:focus, select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  select, input[type="number"] {
+    font: inherit; color: inherit; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px;
+  }
+  input[type="number"] { width: 92px; }
+  .checks { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
+  .checks label { display: flex; align-items: center; gap: 6px; }
+  .checks input[disabled] + span, label.field.disabled { opacity: 0.45; }
+  button {
+    font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: 0; border-radius: 8px; padding: 9px 20px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  kbd {
+    font: 11px var(--mono); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 4px;
+  }
+  .error {
+    background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink);
+    border-radius: 8px; padding: 12px 14px; margin-top: 16px; white-space: pre-wrap;
+    font-size: 14px;
+  }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em;
+       color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .answer { white-space: pre-wrap; font-size: 15.5px; line-height: 1.62; }
+  .answer code { font: 12.5px var(--mono); background: var(--accent-soft); border-radius: 4px; padding: 1px 4px; }
+  .cite {
+    font: 11px var(--mono); background: var(--accent-soft); color: var(--accent);
+    border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+  }
+  ul.papers { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); }
+  ul.papers li { font: 12px var(--mono); color: var(--muted); padding: 2px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px;
+       text-transform: uppercase; letter-spacing: 0.05em; }
+  td.num, .hitrow .score { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .scroll { max-height: 340px; overflow: auto; }
+  .hitrow { border-bottom: 1px solid var(--line); padding: 9px 0; }
+  .hitrow:last-child { border-bottom: 0; }
+  .hitmeta { display: flex; gap: 10px; align-items: baseline; font: 11px var(--mono); color: var(--muted); }
+  .tag { background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 6px; }
+  .excerpt { font-size: 13px; color: var(--ink); margin-top: 4px; }
+  pre.evidence {
+    font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
+    margin: 0; color: var(--muted);
+  }
+  ol.plan { margin: 6px 0 0; padding-left: 22px; font-size: 14px; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .spinner {
+    display: inline-block; width: 13px; height: 13px; vertical-align: -2px;
+    border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+    animation: spin 0.7s linear infinite; margin-right: 7px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+  .history { display: flex; flex-direction: column; gap: 2px; }
+  .history button {
+    background: none; color: inherit; border: 0; padding: 5px 0; text-align: left;
+    font-weight: 400; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--line);
+  }
+  .history button:last-child { border-bottom: 0; }
+  .history button:hover { color: var(--accent); }
+  .history .h-arm { font: 11px var(--mono); color: var(--muted); margin-left: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Ask the corpus</h1>
+    <span class="sub" id="modelline"></span>
+  </header>
+  <p class="sub" style="margin:2px 0 0">
+    Research-Paper-Synthesis-Graph. Every arm here is built by the same
+    <code>build_system</code> the eval harness scores, so what you ask is what the report measures.
+  </p>
+
+  <div class="card">
+    <textarea id="q" placeholder="e.g. what mitigates barren plateaus in VQE?" autofocus></textarea>
+
+    <div class="controls">
+      <label class="field">
+        arm
+        <select id="system"></select>
+      </label>
+      <label class="field" id="topk-field">
+        top-k
+        <input type="number" id="topk" min="1" max="200" placeholder="default">
+      </label>
+      <label class="field" id="maxret-field">
+        max retrievals
+        <input type="number" id="maxret" min="1" max="50" placeholder="default">
+      </label>
+      <button id="ask">Ask</button>
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="retonly"><span>retrieval only (no LLM call, no cost)</span></label>
+      <label><input type="checkbox" id="evidence"><span>show evidence sent to the model</span></label>
+      <label id="hints-label"><input type="checkbox" id="hints" checked><span>graph hints</span></label>
+      <label id="anchor-label"><input type="checkbox" id="anchor" checked><span>anchor retrieval</span></label>
+    </div>
+
+    <p class="hint" id="armhint"></p>
+    <p class="hint"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> to ask. Blank fields keep each arm's measured defaults.</p>
+  </div>
+
+  <div id="error" class="error" hidden></div>
+  <div id="results"></div>
+
+  <div class="card" id="history-card" hidden>
+    <h2>This session</h2>
+    <div class="history" id="history"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    q: $("q"), system: $("system"), topk: $("topk"), maxret: $("maxret"),
+    ask: $("ask"), retonly: $("retonly"), evidence: $("evidence"),
+    hints: $("hints"), anchor: $("anchor"), error: $("error"), results: $("results"),
+    armhint: $("armhint"), modelline: $("modelline"),
+    topkField: $("topk-field"), maxretField: $("maxret-field"),
+    hintsLabel: $("hints-label"), anchorLabel: $("anchor-label"),
+    history: $("history"), historyCard: $("history-card"),
+  };
+
+  let arms = [];
+  const history = [];
+
+  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+  ));
+
+  // The synthesis prompt does not ask for markdown, but the models emit it anyway, and
+  // literal `**` in an answer reads as a typo. Only the three inline forms that actually
+  // show up are handled — this is not a markdown parser, and it must never become one.
+  //
+  // Applied strictly after `escapeHtml`, so the only tags in the result are the ones
+  // these three rules put there. Reversing that order would make model output executable.
+  const renderInline = (escaped) => escaped
+    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>");
+
+  // `[paper:<id>]` is what the synthesizer's handles are rewritten back to before the
+  // answer is stored, so it is the form every arm's answer arrives in.
+  const renderAnswer = (text) =>
+    renderInline(escapeHtml(text)).replace(/\[paper:([^\]]+)\]/g,
+      (_, id) => `<span class="cite">${escapeHtml(id)}</span>`);
+
+  const fmtInt = (n) => n.toLocaleString();
+
+  const armByName = (name) => arms.find((a) => a.name === name);
+
+  /** Enable only the options the selected arm actually honours, and say why. */
+  function syncControls() {
+    const arm = armByName(el.system.value);
+    if (!arm) return;
+    const isAgentic = arm.name.startsWith("agentic");
+
+    el.retonly.disabled = !arm.supports_retrieval_only;
+    if (el.retonly.disabled) el.retonly.checked = false;
+
+    el.topk.disabled = !arm.supports_retrieval_only;
+    el.topkField.classList.toggle("disabled", el.topk.disabled);
+    if (el.topk.disabled) el.topk.value = "";
+
+    el.maxretField.hidden = !isAgentic;
+    el.hintsLabel.hidden = !isAgentic;
+    el.anchorLabel.hidden = !isAgentic;
+
+    const notes = [];
+    if (!arm.ready) notes.push(arm.blocked_on);
+    else if (!arm.supports_retrieval_only) {
+      notes.push(`${arm.name} plans or traverses before it retrieves, so it has no ` +
+                 "pre-synthesis chunk list: retrieval-only and top-k do not apply.");
+    }
+    if (arm.ready && arm.needs_graph) notes.push("reads the typed graph.");
+    el.armhint.textContent = notes.join(" ");
+    el.ask.disabled = !arm.ready;
+  }
+
+  async function loadArms() {
+    try {
+      const res = await fetch("/api/arms");
+      if (!res.ok) throw new Error(`/api/arms returned ${res.status}`);
+      const data = await res.json();
+      arms = data.arms;
+      el.system.innerHTML = arms.map((a) => {
+        const label = a.ready ? a.name : `${a.name} — unavailable`;
+        return `<option value="${escapeHtml(a.name)}"${a.ready ? "" : " disabled"}>${escapeHtml(label)}</option>`;
+      }).join("");
+      const preferred = armByName(data.default);
+      el.system.value = preferred && preferred.ready
+        ? data.default
+        : (arms.find((a) => a.ready) || arms[0]).name;
+      el.modelline.textContent = `synthesis model: ${data.synthesis_model}`;
+      syncControls();
+    } catch (err) {
+      showError(`Could not reach the server: ${err.message}`);
+    }
+  }
+
+  function showError(msg) {
+    el.error.textContent = msg;
+    el.error.hidden = false;
+  }
+
+  const numOrNull = (input) => (input.value.trim() === "" ? null : Number(input.value));
+
+  async function ask() {
+    const question = el.q.value.trim();
+    if (!question) { el.q.focus(); return; }
+    const arm = armByName(el.system.value);
+    const isAgentic = arm && arm.name.startsWith("agentic");
+
+    const body = {
+      question,
+      system: el.system.value,
+      top_k: el.topk.disabled ? null : numOrNull(el.topk),
+      retrieval_only: el.retonly.checked,
+      show_evidence: el.evidence.checked,
+      max_retrievals: isAgentic ? numOrNull(el.maxret) : null,
+      graph_hints: isAgentic ? el.hints.checked : true,
+      anchor: isAgentic ? el.anchor.checked : true,
+    };
+
+    el.error.hidden = true;
+    el.ask.disabled = true;
+    el.results.innerHTML =
+      `<div class="card"><span class="spinner"></span>Asking <strong>${escapeHtml(body.system)}</strong>… ` +
+      "the first question on an arm also loads the embedder and the index.</div>";
+
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        el.results.innerHTML = "";
+        // FastAPI puts our message in `detail`; a validation error puts a list there.
+        showError(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
+        return;
+      }
+      render(data);
+      remember(data);
+    } catch (err) {
+      el.results.innerHTML = "";
+      showError(`Request failed: ${err.message}`);
+    } finally {
+      el.ask.disabled = false;
+      syncControls();
+    }
+  }
+
+  function remember(data) {
+    history.unshift({ question: data.question, arm: data.arm });
+    el.historyCard.hidden = false;
+    el.history.innerHTML = history.slice(0, 12).map((h, i) =>
+      `<button data-i="${i}">${escapeHtml(h.question)}<span class="h-arm">${escapeHtml(h.arm)}</span></button>`
+    ).join("");
+    el.history.querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => {
+        const item = history[Number(b.dataset.i)];
+        el.q.value = item.question;
+        el.q.focus();
+      });
+    });
+  }
+
+  function card(title, inner, extraClass) {
+    return `<div class="card${extraClass ? " " + extraClass : ""}"><h2>${title}</h2>${inner}</div>`;
+  }
+
+  function renderTrajectory(t) {
+    const parts = [];
+    if (t.planner_failed) {
+      parts.push('<p class="error" style="margin-top:0">The planner failed — this degraded ' +
+                 "to a single retrieval on the original question.</p>");
+    }
+    const subs = t.sub_questions || [];
+    parts.push(`<p style="margin:0">Plan: ${subs.length} sub-question(s)</p>`);
+    if (subs.length) {
+      parts.push(`<ol class="plan">${subs.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>`);
+    }
+    if (t.plan_reasoning) {
+      parts.push(`<p class="hint">reasoning: ${escapeHtml(t.plan_reasoning)}</p>`);
+    }
+    if (t.graph_hints && t.graph_hints.length) {
+      parts.push(`<p class="hint">graph hints: ${escapeHtml(t.graph_hints.slice(0, 6).join(", "))}</p>`);
+    }
+    const bits = [
+      `retrievals used: ${t.retrievals_used || 0}`,
+      `refused: ${t.retrievals_refused || 0}`,
+      `anchor: ${t.anchor_used ? "on" : "off"}`,
+    ];
+    if (t.critique_ran) {
+      bits.push(`critique: ${(t.gaps || []).length} gap(s), ` +
+                `${(t.critique_added_papers || []).length} paper(s) added`);
+    } else {
+      bits.push("critique: disabled");
+    }
+    parts.push(`<div class="meta">${bits.map((b) => `<span>${escapeHtml(b)}</span>`).join("")}</div>`);
+    if (t.critique_assessment) {
+      parts.push(`<p class="hint">assessment: ${escapeHtml(t.critique_assessment)}</p>`);
+    }
+    return card("Trajectory", parts.join(""));
+  }
+
+  function renderUsage(rows, elapsed) {
+    const body = rows.length
+      ? `<table><thead><tr><th>model</th><th>calls</th><th>in</th><th>out</th><th>cached</th><th>cost</th></tr></thead><tbody>` +
+        rows.map((r) => `<tr><td>${escapeHtml(r.model)}</td><td class="num">${fmtInt(r.calls)}</td>` +
+          `<td class="num">${fmtInt(r.input_tokens)}</td><td class="num">${fmtInt(r.output_tokens)}</td>` +
+          `<td class="num">${fmtInt(r.cached_input_tokens)}</td>` +
+          // Not "$0.00": an unpriced model is unknown cost, not free.
+          `<td class="num">${r.cost_usd === null ? "n/a" : "$" + r.cost_usd.toFixed(4)}</td></tr>`).join("") +
+        "</tbody></table>"
+      : '<p class="hint" style="margin:0">No LLM calls — retrieval only.</p>';
+    const note = rows.some((r) => r.cost_usd === null)
+      ? '<p class="hint">cost "n/a": add rates under models.pricing in configs/settings.yaml.</p>'
+      : "";
+    return card("This question", body + note +
+      `<div class="meta"><span>${elapsed.toFixed(1)}s</span></div>`);
+  }
+
+  function render(d) {
+    const out = [];
+
+    if (d.answer !== null) {
+      const papers = d.cited_paper_ids.length
+        ? `<ul class="papers">${d.cited_paper_ids.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>`
+        : '<p class="hint">The answer cited no paper.</p>';
+      out.push(card(`Answer — ${escapeHtml(d.arm)}`,
+        `<div class="answer">${renderAnswer(d.answer)}</div>` +
+        `<p class="hint" style="margin-bottom:0">grounded on ${d.cited_paper_ids.length} paper(s)</p>` +
+        papers));
+    }
+
+    if (d.trace && Object.keys(d.trace).length) out.push(renderTrajectory(d.trace));
+
+    if (d.hits.length) {
+      const rows = d.hits.map((h) =>
+        `<div class="hitrow"><div class="hitmeta">` +
+        `<span class="score">${h.score >= 0 ? "+" : ""}${h.score.toFixed(3)}</span>` +
+        `<span class="tag">${escapeHtml(h.section_type)}</span>` +
+        `<span>${escapeHtml(h.paper_id)}</span></div>` +
+        `<div class="excerpt">${escapeHtml(h.excerpt)}…</div></div>`).join("");
+      out.push(card(`Retrieved — ${d.hits.length} chunk(s)`, `<div class="scroll">${rows}</div>`));
+    }
+
+    if (d.evidence) {
+      out.push(card(`Evidence sent to the model — ${fmtInt(d.evidence.length)} chars`,
+        `<div class="scroll"><pre class="evidence">${escapeHtml(d.evidence)}</pre></div>`));
+    }
+
+    out.push(renderUsage(d.usage, d.elapsed_s));
+    el.results.innerHTML = out.join("");
+  }
+
+  el.ask.addEventListener("click", ask);
+  el.system.addEventListener("change", syncControls);
+  el.q.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); ask(); }
+  });
+
+  loadArms();
+})();
+</script>
+</body>
+</html>

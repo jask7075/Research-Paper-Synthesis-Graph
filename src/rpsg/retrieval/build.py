@@ -139,3 +139,40 @@ def build_system(
         corpus=CORPUS[name],
         top_k=top_k,
     )
+
+
+#: Arms that read the vector index — every arm except the one that traverses the graph
+#: alone. Checked before building so a first-time user gets a "build the index" message
+#: instead of the bare RuntimeError `faiss.read_index` raises on a missing file.
+NEEDS_VECTOR_INDEX = frozenset(SYSTEMS) - {"typed_graph"}
+
+#: Arms that open the Kuzu graph. These constants and `missing_store` live here, beside
+#: `build_system`, for the reason this module exists at all: `ask.py` and the web UI both
+#: have to refuse an arm whose store is absent, and two copies of that rule drift.
+NEEDS_GRAPH = frozenset(
+    n for n in SYSTEMS if n.startswith(("typed_graph", "citation_graph", "agentic"))
+)
+
+
+def missing_store(name: str) -> str | None:
+    """Name the store `name` needs and does not have, or None when the arm can be built.
+
+    Returns a message written for whoever is about to be refused: it says which path was
+    looked at and which stage builds it. Callers decide how to deliver it — `ask.py` exits
+    with it, the web app returns it as a 409 — but neither decides *what* is required.
+    """
+    if name not in SYSTEMS:
+        return f"unknown system {name!r}; choose from {', '.join(SYSTEMS)}"
+    settings = get_settings()
+    if name in NEEDS_VECTOR_INDEX and not settings.paths.vector_index.exists():
+        return (
+            f"no vector index at {settings.paths.vector_index}\n"
+            "Build one first:  python scripts/05_build_stores.py [--hash-embed]"
+        )
+    if name in NEEDS_GRAPH and not settings.paths.kuzu_db.exists():
+        return (
+            f"no graph at {settings.paths.kuzu_db}\n"
+            f"{name!r} traverses the typed graph. Build it first:  "
+            "python scripts/05_build_stores.py"
+        )
+    return None

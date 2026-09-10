@@ -37,6 +37,10 @@ pgvector = [
     "psycopg[binary]>=3.1",         # Phase-1.5 portable vector store
     "pgvector>=0.2",
 ]
+web = [
+    "fastapi>=0.110",               # browser front end for ask.py (rpsg.web.app)
+    "uvicorn[standard]>=0.29",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -46,6 +50,9 @@ dev = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rpsg"]
+# `rpsg.web.app` serves index.html from the installed package, so the static directory
+# has to travel with it — a wheel of .py files alone would 404 on `/`.
+artifacts = ["src/rpsg/web/static/*"]
 
 [tool.ruff]
 line-length = 100
