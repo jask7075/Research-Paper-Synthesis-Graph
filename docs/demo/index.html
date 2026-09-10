@@ -1,0 +1,199 @@
+<!doctype html>
+<!--
+  The public demo, served by GitHub Pages.
+
+  Pages serves static files: no Python process, no FAISS index, no Kuzu graph, no API key.
+  So this page cannot answer a new question, and it does not pretend to. It replays runs
+  recorded by `scripts/record_demo.py` against the real stores, and says so at the top.
+
+  It shares `style.css` and `render.js` with the live app in src/rpsg/web/static/. The
+  recordings are the exact JSON /api/ask returns, so `renderResult` draws them with the
+  code path that draws a live answer — the demo cannot drift into showing something the
+  real thing does not do. The Pages workflow copies both files in; see .github/workflows/pages.yml.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RPSG — recorded demo</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  /* Demo-only chrome. Everything that draws a result comes from the shared stylesheet. */
+  .banner {
+    background: var(--accent-soft); border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 8px; padding: 13px 15px; margin-top: 16px; font-size: 13.5px;
+  }
+  .banner strong { color: var(--accent); }
+  .banner code { font: 12px var(--mono); }
+  .qlist { display: flex; flex-direction: column; gap: 0; }
+  .qlist button {
+    background: none; color: inherit; border: 0; border-bottom: 1px solid var(--line);
+    padding: 10px 2px; text-align: left; font: inherit; font-size: 14px; cursor: pointer;
+    display: flex; gap: 10px; align-items: baseline;
+  }
+  .qlist button:last-child { border-bottom: 0; }
+  .qlist button:hover { color: var(--accent); }
+  .qlist button[aria-current="true"] { color: var(--accent); font-weight: 600; }
+  .qtype {
+    font: 10px var(--mono); text-transform: uppercase; letter-spacing: 0.05em;
+    background: var(--accent-soft); color: var(--accent);
+    border-radius: 4px; padding: 2px 6px; flex: none; min-width: 92px; text-align: center;
+  }
+  .armbar { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  .armbar button {
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    border-radius: 999px; padding: 6px 15px; font: inherit; font-size: 13px;
+    font-weight: 500; cursor: pointer;
+  }
+  .armbar button[aria-pressed="true"] {
+    background: var(--accent); border-color: var(--accent); color: #fff;
+  }
+  .compare td.arm { font: 12px var(--mono); }
+  .compare tr.on td { color: var(--accent); font-weight: 600; }
+  footer { margin-top: 34px; font-size: 12px; color: var(--muted); }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Ask the corpus</h1>
+    <span class="sub" id="modelline"></span>
+  </header>
+  <p class="sub" style="margin:2px 0 0">
+    Research-Paper-Synthesis-Graph — a typed Graph-RAG system over quantum-computing papers,
+    with an eval-first harness.
+  </p>
+
+  <div class="banner">
+    <strong>This is a recorded demo, not a live system.</strong>
+    GitHub Pages serves static files, so there is no retrieval and no model call behind this
+    page. Every answer, retrieved chunk, plan and token bill below was produced by the real
+    pipeline against the real index and graph, then saved. Pick a question and switch arms to
+    compare them on identical input.
+    To ask your own question, clone the repo and run <code>make ui</code>.
+  </div>
+
+  <div class="card">
+    <h2>Question <span class="sub" id="qcount"></span></h2>
+    <div class="qlist" id="qlist"></div>
+  </div>
+
+  <div class="card">
+    <h2>Arm</h2>
+    <div class="armbar" id="armbar"></div>
+    <p class="hint" id="armnote"></p>
+  </div>
+
+  <div id="compare"></div>
+  <div id="results"></div>
+
+  <footer>
+    Recorded <span id="recorded"></span> ·
+    questions from <code id="goldset"></code>, the set the eval harness scores ·
+    <a href="https://github.com/jask7075/Research-Paper-Synthesis-Graph">source on GitHub</a>
+  </footer>
+</div>
+
+<script src="render.js"></script>
+<script>
+(() => {
+  "use strict";
+
+  const { escapeHtml, renderResult, card, fmtInt } = window.RPSG;
+  const $ = (id) => document.getElementById(id);
+
+  let data = null;
+  let qi = 0;
+  let arm = null;
+
+  /** Arms this question actually has a recording for. A refused run is simply absent. */
+  const armsFor = (q) => (data.arms || []).filter((a) => q.runs[a]);
+
+  function renderQuestions() {
+    $("qcount").textContent = `— ${data.questions.length} from the gold set`;
+    $("qlist").innerHTML = data.questions.map((q, i) =>
+      `<button data-i="${i}" aria-current="${i === qi}">` +
+      `<span class="qtype">${escapeHtml(q.query_type)}</span>` +
+      `<span>${escapeHtml(q.query)}</span></button>`
+    ).join("");
+    $("qlist").querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => { qi = Number(b.dataset.i); arm = null; draw(); });
+    });
+  }
+
+  function renderArms(q) {
+    const available = armsFor(q);
+    $("armbar").innerHTML = available.map((a) =>
+      `<button data-arm="${escapeHtml(a)}" aria-pressed="${a === arm}">${escapeHtml(a)}</button>`
+    ).join("");
+    $("armbar").querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => { arm = b.dataset.arm; draw(); });
+    });
+    const missing = (data.arms || []).filter((a) => !q.runs[a]);
+    $("armnote").textContent = missing.length
+      ? `No recording for ${missing.join(", ")} on this question.`
+      : "Same question, same corpus. Only the retrieval strategy changes.";
+  }
+
+  /** The point of recording several arms: what each one cost to reach its answer. */
+  function renderCompare(q) {
+    const rows = armsFor(q).map((a) => {
+      const r = q.runs[a];
+      const calls = r.usage.reduce((n, u) => n + u.calls, 0);
+      const cost = r.usage.reduce((n, u) => n + (u.cost_usd || 0), 0);
+      const unpriced = r.usage.some((u) => u.cost_usd === null);
+      return `<tr class="${a === arm ? "on" : ""}"><td class="arm">${escapeHtml(a)}</td>` +
+        `<td class="num">${r.cited_paper_ids.length}</td>` +
+        `<td class="num">${r.hits.length || "—"}</td>` +
+        `<td class="num">${fmtInt(calls)}</td>` +
+        `<td class="num">${unpriced ? "n/a" : "$" + cost.toFixed(4)}</td>` +
+        `<td class="num">${r.elapsed_s.toFixed(1)}s</td></tr>`;
+    }).join("");
+    $("compare").innerHTML = card("Arms on this question",
+      "<table class=\"compare\"><thead><tr><th>arm</th><th>papers cited</th><th>chunks</th>" +
+      "<th>llm calls</th><th>cost</th><th>time</th></tr></thead>" +
+      `<tbody>${rows}</tbody></table>` +
+      '<p class="hint">Cited-paper count is not a quality score — a hedged answer that ' +
+      'cites less may be the more honest one. Read the answers.</p>');
+  }
+
+  function draw() {
+    const q = data.questions[qi];
+    const available = armsFor(q);
+    if (!arm || !q.runs[arm]) arm = available[0];
+    renderQuestions();
+    renderArms(q);
+    if (!arm) {
+      $("compare").innerHTML = "";
+      $("results").innerHTML = card("No recording",
+        '<p class="hint" style="margin:0">Every arm was refused for this question.</p>');
+      return;
+    }
+    renderCompare(q);
+    $("results").innerHTML = renderResult(q.runs[arm]);
+  }
+
+  fetch("recordings.json")
+    .then((res) => {
+      if (!res.ok) throw new Error(`recordings.json returned ${res.status}`);
+      return res.json();
+    })
+    .then((payload) => {
+      data = payload;
+      $("modelline").textContent = `synthesis model: ${data.synthesis_model}`;
+      $("recorded").textContent = (data.recorded_at || "").replace("T", " ").replace("+00:00", " UTC");
+      $("goldset").textContent = data.gold_set || "";
+      draw();
+    })
+    .catch((err) => {
+      $("results").innerHTML = card("Could not load the recordings",
+        `<p class="hint" style="margin:0">${escapeHtml(err.message)}. ` +
+        "If you opened this file directly from disk, serve the folder over HTTP instead — " +
+        "browsers block <code>fetch</code> on <code>file://</code>.</p>");
+    });
+})();
+</script>
+</body>
+</html>

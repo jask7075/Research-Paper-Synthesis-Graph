@@ -158,6 +158,7 @@ src/rpsg/
   stores/           GraphStore / VectorStore interfaces + Kuzu / local adapters
   retrieval/        baselines (vector-abstract, vector-fulltext)
   eval/             gold schema, deterministic metrics, LLM judge, calibration, runner
+  web/              browser front end: service.py (logic) + app.py (FastAPI) + static/
 scripts/            numbered pipeline entrypoints (01_… → 06_…) plus these tools:
   run_pipeline.py     sequence 01–06 with preflight checks and per-stage accounting
   ask.py              ask the corpus a question (retrieve + synthesise)
@@ -212,6 +213,66 @@ python scripts/ask.py "..." --retrieval-only              # no LLM call, no cost
 python scripts/inspect_pdf.py data/raw/pdfs/<paper_id>.pdf
 python scripts/report_state.py --format html              # printable state report
 ```
+
+## Asking in a browser
+
+The same question, the same arms, in a page instead of a terminal:
+
+```bash
+make install-web        # pip install -e ".[web]"  — FastAPI + uvicorn
+make ui                 # http://127.0.0.1:8000
+```
+
+![The ask-a-question UI](docs/img/ui-answer.png)
+
+It shows what the CLI prints and what a terminal makes hard to read: the answer with its
+citations resolved, the papers it was grounded on, the chunks retrieval actually returned,
+the agentic arm's plan and critique, and what the question cost in tokens and dollars.
+
+Both front ends go through `rpsg.retrieval.build.build_system`, so the arm you ask in the
+browser is configured identically to the arm `06_run_eval.py` scores. Three things the page
+does deliberately:
+
+- **Blank fields mean the measured default.** `top-k`, `max retrievals` and the agentic
+  toggles are passed through as-is. A form that substituted its own numbers would show you
+  an arm the report never scored, so `top-k` is *refused* on the graph arms rather than
+  accepted and ignored.
+- **Retrieval-only is refused, not downgraded.** Ticking it on an arm that plans before it
+  retrieves returns an error, because answering in full would spend money you declined to
+  spend.
+- **It never writes to the graph.** `ask.py` can persist a decomposition as STAGED nodes
+  with `--stage-writes`; the browser has no such control, so a mistyped question cannot
+  mutate the graph the eval measures.
+
+An arm whose store is missing is offered as disabled, with the command that builds it. The
+server is single-worker on purpose: the arms hold FAISS and Kuzu handles that are not shared
+across processes, and each worker would load its own copy of the embedder.
+
+### The public demo
+
+**<https://jask7075.github.io/Research-Paper-Synthesis-Graph/>** — no install, no key.
+
+The live page cannot be hosted: it needs the Python process, a 34MB FAISS index, a 66MB
+Kuzu graph and an API key, and GitHub Pages serves static files. So the public page replays
+runs instead of producing them. Pick one of eight gold questions, switch between four arms,
+and read the answer, the retrieved chunks, the agentic plan and the token bill each one
+produced.
+
+The recordings are real. `scripts/record_demo.py` drives the same `AskService` the live
+server calls, against the same index and graph, and saves each result as the exact JSON
+`/api/ask` returns — which is why the demo and the live app share one `render.js` and one
+`style.css`. A recording cannot show something the real system does not do.
+
+```bash
+python scripts/record_demo.py --dry-run     # what would run, spends nothing
+python scripts/record_demo.py               # re-record (32 runs, about $0.70)
+make demo                                   # assemble and serve it at :8001
+```
+
+The questions come from `eval/gold/queries.full34.jsonl`, the set the report scores, and
+span all four query types — including the ones the system handles least well. Picking
+questions after seeing which answers looked best would make it an advert rather than
+evidence, so the set was fixed first and every run recorded.
 
 ## Looking at the graph
 

@@ -1,0 +1,224 @@
+<!doctype html>
+<!--
+  The whole front end. No build step and no CDN: the page is served from localhost beside
+  the index it queries, so a network dependency would only add a way for it to fail.
+
+  It talks to two endpoints — GET /api/arms to populate the picker, POST /api/ask to ask —
+  and renders exactly what the CLI prints: the answer, what it was grounded on, the
+  retrieval, the agentic trajectory, and what the question cost.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RPSG — ask the corpus</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Ask the corpus</h1>
+    <span class="sub" id="modelline"></span>
+  </header>
+  <p class="sub" style="margin:2px 0 0">
+    Research-Paper-Synthesis-Graph. Every arm here is built by the same
+    <code>build_system</code> the eval harness scores, so what you ask is what the report measures.
+  </p>
+
+  <div class="card">
+    <textarea id="q" placeholder="e.g. what mitigates barren plateaus in VQE?" autofocus></textarea>
+
+    <div class="controls">
+      <label class="field">
+        arm
+        <select id="system"></select>
+      </label>
+      <label class="field" id="topk-field">
+        top-k
+        <input type="number" id="topk" min="1" max="200" placeholder="default">
+      </label>
+      <label class="field" id="maxret-field">
+        max retrievals
+        <input type="number" id="maxret" min="1" max="50" placeholder="default">
+      </label>
+      <button id="ask">Ask</button>
+    </div>
+
+    <div class="checks">
+      <label><input type="checkbox" id="retonly"><span>retrieval only (no LLM call, no cost)</span></label>
+      <label><input type="checkbox" id="evidence"><span>show evidence sent to the model</span></label>
+      <label id="hints-label"><input type="checkbox" id="hints" checked><span>graph hints</span></label>
+      <label id="anchor-label"><input type="checkbox" id="anchor" checked><span>anchor retrieval</span></label>
+    </div>
+
+    <p class="hint" id="armhint"></p>
+    <p class="hint"><kbd>⌘</kbd>/<kbd>Ctrl</kbd> + <kbd>Enter</kbd> to ask. Blank fields keep each arm's measured defaults.</p>
+  </div>
+
+  <div id="error" class="error" hidden></div>
+  <div id="results"></div>
+
+  <div class="card" id="history-card" hidden>
+    <h2>This session</h2>
+    <div class="history" id="history"></div>
+  </div>
+</div>
+
+<script src="render.js"></script>
+<script>
+(() => {
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+  const el = {
+    q: $("q"), system: $("system"), topk: $("topk"), maxret: $("maxret"),
+    ask: $("ask"), retonly: $("retonly"), evidence: $("evidence"),
+    hints: $("hints"), anchor: $("anchor"), error: $("error"), results: $("results"),
+    armhint: $("armhint"), modelline: $("modelline"),
+    topkField: $("topk-field"), maxretField: $("maxret-field"),
+    hintsLabel: $("hints-label"), anchorLabel: $("anchor-label"),
+    history: $("history"), historyCard: $("history-card"),
+  };
+
+  let arms = [];
+  const history = [];
+
+  // Rendering lives in render.js, shared with the public demo. Only the parts that
+  // talk to the server are here.
+  const { escapeHtml, renderResult } = window.RPSG;
+
+  const armByName = (name) => arms.find((a) => a.name === name);
+
+  /** Enable only the options the selected arm actually honours, and say why. */
+  function syncControls() {
+    const arm = armByName(el.system.value);
+    if (!arm) return;
+    const isAgentic = arm.name.startsWith("agentic");
+
+    el.retonly.disabled = !arm.supports_retrieval_only;
+    if (el.retonly.disabled) el.retonly.checked = false;
+
+    el.topk.disabled = !arm.supports_retrieval_only;
+    el.topkField.classList.toggle("disabled", el.topk.disabled);
+    if (el.topk.disabled) el.topk.value = "";
+
+    el.maxretField.hidden = !isAgentic;
+    el.hintsLabel.hidden = !isAgentic;
+    el.anchorLabel.hidden = !isAgentic;
+
+    const notes = [];
+    if (!arm.ready) notes.push(arm.blocked_on);
+    else if (!arm.supports_retrieval_only) {
+      notes.push(`${arm.name} plans or traverses before it retrieves, so it has no ` +
+                 "pre-synthesis chunk list: retrieval-only and top-k do not apply.");
+    }
+    if (arm.ready && arm.needs_graph) notes.push("reads the typed graph.");
+    el.armhint.textContent = notes.join(" ");
+    el.ask.disabled = !arm.ready;
+  }
+
+  async function loadArms() {
+    try {
+      const res = await fetch("/api/arms");
+      if (!res.ok) throw new Error(`/api/arms returned ${res.status}`);
+      const data = await res.json();
+      arms = data.arms;
+      el.system.innerHTML = arms.map((a) => {
+        const label = a.ready ? a.name : `${a.name} — unavailable`;
+        return `<option value="${escapeHtml(a.name)}"${a.ready ? "" : " disabled"}>${escapeHtml(label)}</option>`;
+      }).join("");
+      const preferred = armByName(data.default);
+      el.system.value = preferred && preferred.ready
+        ? data.default
+        : (arms.find((a) => a.ready) || arms[0]).name;
+      el.modelline.textContent = `synthesis model: ${data.synthesis_model}`;
+      syncControls();
+    } catch (err) {
+      showError(`Could not reach the server: ${err.message}`);
+    }
+  }
+
+  function showError(msg) {
+    el.error.textContent = msg;
+    el.error.hidden = false;
+  }
+
+  const numOrNull = (input) => (input.value.trim() === "" ? null : Number(input.value));
+
+  async function ask() {
+    const question = el.q.value.trim();
+    if (!question) { el.q.focus(); return; }
+    const arm = armByName(el.system.value);
+    const isAgentic = arm && arm.name.startsWith("agentic");
+
+    const body = {
+      question,
+      system: el.system.value,
+      top_k: el.topk.disabled ? null : numOrNull(el.topk),
+      retrieval_only: el.retonly.checked,
+      show_evidence: el.evidence.checked,
+      max_retrievals: isAgentic ? numOrNull(el.maxret) : null,
+      graph_hints: isAgentic ? el.hints.checked : true,
+      anchor: isAgentic ? el.anchor.checked : true,
+    };
+
+    el.error.hidden = true;
+    el.ask.disabled = true;
+    el.results.innerHTML =
+      `<div class="card"><span class="spinner"></span>Asking <strong>${escapeHtml(body.system)}</strong>… ` +
+      "the first question on an arm also loads the embedder and the index.</div>";
+
+    try {
+      const res = await fetch("/api/ask", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        el.results.innerHTML = "";
+        // FastAPI puts our message in `detail`; a validation error puts a list there.
+        showError(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail));
+        return;
+      }
+      render(data);
+      remember(data);
+    } catch (err) {
+      el.results.innerHTML = "";
+      showError(`Request failed: ${err.message}`);
+    } finally {
+      el.ask.disabled = false;
+      syncControls();
+    }
+  }
+
+  function remember(data) {
+    history.unshift({ question: data.question, arm: data.arm });
+    el.historyCard.hidden = false;
+    el.history.innerHTML = history.slice(0, 12).map((h, i) =>
+      `<button data-i="${i}">${escapeHtml(h.question)}<span class="h-arm">${escapeHtml(h.arm)}</span></button>`
+    ).join("");
+    el.history.querySelectorAll("button").forEach((b) => {
+      b.addEventListener("click", () => {
+        const item = history[Number(b.dataset.i)];
+        el.q.value = item.question;
+        el.q.focus();
+      });
+    });
+  }
+
+  function render(d) {
+    el.results.innerHTML = renderResult(d);
+  }
+
+  el.ask.addEventListener("click", ask);
+  el.system.addEventListener("change", syncControls);
+  el.q.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") { e.preventDefault(); ask(); }
+  });
+
+  loadArms();
+})();
+</script>
+</body>
+</html>

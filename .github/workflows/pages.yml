@@ -1,0 +1,67 @@
+name: Pages
+
+# Publishes the recorded demo (docs/demo) to GitHub Pages.
+#
+# The site is assembled here rather than committed whole, because two of its three files
+# belong to the live app: `style.css` and `render.js` live in the package that FastAPI
+# serves, and the demo shares them so a recording and a live answer are drawn by the same
+# code. Committing copies would let the two drift apart silently, which is exactly the
+# failure a demo cannot afford — it would stop being evidence of what the real thing does.
+#
+# Nothing here can run the pipeline: Pages serves static files. See scripts/record_demo.py.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/demo/**"
+      - "src/rpsg/web/static/**"
+      - ".github/workflows/pages.yml"
+  # So the site can be published without waiting for a content change.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a queued run is not cancelled, so the last push still ships.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp docs/demo/index.html docs/demo/recordings.json _site/
+          cp src/rpsg/web/static/style.css src/rpsg/web/static/render.js _site/
+          ls -la _site
+
+      # A demo whose recordings failed to copy would render an error box to every
+      # visitor, so the run fails here instead of deploying a broken page.
+      - name: Check the payload is complete
+        run: |
+          set -euo pipefail
+          for f in index.html recordings.json style.css render.js; do
+            test -s "_site/$f" || { echo "missing or empty: $f"; exit 1; }
+          done
+          python3 -c "import json,sys; d=json.load(open('_site/recordings.json')); \
+            n=len(d['questions']); assert n, 'no questions recorded'; \
+            print(f'{n} question(s), arms: {d[\"arms\"]}')"
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4

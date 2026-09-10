@@ -29,6 +29,9 @@ eval/runs/*
 *.faiss
 *.duckdb
 
+# Assembled by `make demo` and by the Pages workflow; never a source of truth
+_site/
+
 # Notebooks
 .ipynb_checkpoints/
 

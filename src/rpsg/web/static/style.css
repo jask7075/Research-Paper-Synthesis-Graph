@@ -1,0 +1,123 @@
+/*
+  Shared by both front ends: the live app (src/rpsg/web/static/index.html, served by
+  FastAPI) and the public demo (docs/demo/index.html, served as static files by GitHub
+  Pages). One copy, so a demo screenshot and the real thing cannot look like different
+  products.
+*/
+  :root {
+    --bg: #fbfaf8;
+    --panel: #ffffff;
+    --ink: #1b1a18;
+    --muted: #6b6862;
+    --line: #e3e0da;
+    --accent: #7a4b2a;
+    --accent-soft: #f3ece5;
+    --warn-bg: #fdf1ee;
+    --warn-line: #e5b8ab;
+    --warn-ink: #8c3418;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16171a;
+      --panel: #1e2024;
+      --ink: #e8e6e2;
+      --muted: #9a978f;
+      --line: #32353b;
+      --accent: #d99b6c;
+      --accent-soft: #2a2520;
+      --warn-bg: #2d1d18;
+      --warn-line: #6b3527;
+      --warn-ink: #f0a68c;
+    }
+  }
+  * { box-sizing: border-box; }
+  /* `display: flex` on the controls below outranks the browser's own
+     `[hidden] { display: none }`, so hiding the agentic-only fields needs this. */
+  [hidden] { display: none !important; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 20px 80px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 16px; margin-top: 16px;
+  }
+  textarea {
+    width: 100%; min-height: 78px; resize: vertical; padding: 11px 12px;
+    font: inherit; color: inherit; background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px;
+  }
+  textarea:focus, select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
+  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
+  select, input[type="number"] {
+    font: inherit; color: inherit; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px;
+  }
+  input[type="number"] { width: 92px; }
+  .checks { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
+  .checks label { display: flex; align-items: center; gap: 6px; }
+  .checks input[disabled] + span, label.field.disabled { opacity: 0.45; }
+  button {
+    font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: 0; border-radius: 8px; padding: 9px 20px; cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  kbd {
+    font: 11px var(--mono); border: 1px solid var(--line);
+    border-bottom-width: 2px; border-radius: 4px; padding: 1px 4px;
+  }
+  .error {
+    background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink);
+    border-radius: 8px; padding: 12px 14px; margin-top: 16px; white-space: pre-wrap;
+    font-size: 14px;
+  }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em;
+       color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .answer { white-space: pre-wrap; font-size: 15.5px; line-height: 1.62; }
+  .answer code { font: 12.5px var(--mono); background: var(--accent-soft); border-radius: 4px; padding: 1px 4px; }
+  .cite {
+    font: 11px var(--mono); background: var(--accent-soft); color: var(--accent);
+    border-radius: 4px; padding: 1px 5px; white-space: nowrap;
+  }
+  ul.papers { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); }
+  ul.papers li { font: 12px var(--mono); color: var(--muted); padding: 2px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px;
+       text-transform: uppercase; letter-spacing: 0.05em; }
+  td.num, .hitrow .score { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .scroll { max-height: 340px; overflow: auto; }
+  .hitrow { border-bottom: 1px solid var(--line); padding: 9px 0; }
+  .hitrow:last-child { border-bottom: 0; }
+  .hitmeta { display: flex; gap: 10px; align-items: baseline; font: 11px var(--mono); color: var(--muted); }
+  .tag { background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 6px; }
+  .excerpt { font-size: 13px; color: var(--ink); margin-top: 4px; }
+  pre.evidence {
+    font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
+    margin: 0; color: var(--muted);
+  }
+  ol.plan { margin: 6px 0 0; padding-left: 22px; font-size: 14px; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .spinner {
+    display: inline-block; width: 13px; height: 13px; vertical-align: -2px;
+    border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+    animation: spin 0.7s linear infinite; margin-right: 7px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+  .history { display: flex; flex-direction: column; gap: 2px; }
+  .history button {
+    background: none; color: inherit; border: 0; padding: 5px 0; text-align: left;
+    font-weight: 400; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--line);
+  }
+  .history button:last-child { border-bottom: 0; }
+  .history button:hover { color: var(--accent); }
+  .history .h-arm { font: 11px var(--mono); color: var(--muted); margin-left: 8px; }
