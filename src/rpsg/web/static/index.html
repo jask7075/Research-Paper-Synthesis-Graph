@@ -12,125 +12,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RPSG — ask the corpus</title>
-<style>
-  :root {
-    --bg: #fbfaf8;
-    --panel: #ffffff;
-    --ink: #1b1a18;
-    --muted: #6b6862;
-    --line: #e3e0da;
-    --accent: #7a4b2a;
-    --accent-soft: #f3ece5;
-    --warn-bg: #fdf1ee;
-    --warn-line: #e5b8ab;
-    --warn-ink: #8c3418;
-    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #16171a;
-      --panel: #1e2024;
-      --ink: #e8e6e2;
-      --muted: #9a978f;
-      --line: #32353b;
-      --accent: #d99b6c;
-      --accent-soft: #2a2520;
-      --warn-bg: #2d1d18;
-      --warn-line: #6b3527;
-      --warn-ink: #f0a68c;
-    }
-  }
-  * { box-sizing: border-box; }
-  /* `display: flex` on the controls below outranks the browser's own
-     `[hidden] { display: none }`, so hiding the agentic-only fields needs this. */
-  [hidden] { display: none !important; }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
-  .wrap { max-width: 920px; margin: 0 auto; padding: 28px 20px 80px; }
-  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
-  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
-  .sub { color: var(--muted); font-size: 13px; }
-  .card {
-    background: var(--panel); border: 1px solid var(--line);
-    border-radius: 10px; padding: 16px; margin-top: 16px;
-  }
-  textarea {
-    width: 100%; min-height: 78px; resize: vertical; padding: 11px 12px;
-    font: inherit; color: inherit; background: var(--bg);
-    border: 1px solid var(--line); border-radius: 8px;
-  }
-  textarea:focus, select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .controls { display: flex; gap: 14px; align-items: flex-end; flex-wrap: wrap; margin-top: 12px; }
-  label.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); }
-  select, input[type="number"] {
-    font: inherit; color: inherit; background: var(--panel);
-    border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px;
-  }
-  input[type="number"] { width: 92px; }
-  .checks { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; font-size: 13px; }
-  .checks label { display: flex; align-items: center; gap: 6px; }
-  .checks input[disabled] + span, label.field.disabled { opacity: 0.45; }
-  button {
-    font: inherit; font-weight: 600; color: #fff; background: var(--accent);
-    border: 0; border-radius: 8px; padding: 9px 20px; cursor: pointer;
-  }
-  button:disabled { opacity: 0.5; cursor: default; }
-  .hint { font-size: 12px; color: var(--muted); margin-top: 10px; }
-  kbd {
-    font: 11px var(--mono); border: 1px solid var(--line);
-    border-bottom-width: 2px; border-radius: 4px; padding: 1px 4px;
-  }
-  .error {
-    background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink);
-    border-radius: 8px; padding: 12px 14px; margin-top: 16px; white-space: pre-wrap;
-    font-size: 14px;
-  }
-  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.07em;
-       color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-  .answer { white-space: pre-wrap; font-size: 15.5px; line-height: 1.62; }
-  .answer code { font: 12.5px var(--mono); background: var(--accent-soft); border-radius: 4px; padding: 1px 4px; }
-  .cite {
-    font: 11px var(--mono); background: var(--accent-soft); color: var(--accent);
-    border-radius: 4px; padding: 1px 5px; white-space: nowrap;
-  }
-  ul.papers { list-style: none; margin: 12px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); }
-  ul.papers li { font: 12px var(--mono); color: var(--muted); padding: 2px 0; }
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th, td { text-align: right; padding: 5px 8px; border-bottom: 1px solid var(--line); }
-  th:first-child, td:first-child { text-align: left; }
-  th { color: var(--muted); font-weight: 600; font-size: 11px;
-       text-transform: uppercase; letter-spacing: 0.05em; }
-  td.num, .hitrow .score { font-family: var(--mono); font-variant-numeric: tabular-nums; }
-  .scroll { max-height: 340px; overflow: auto; }
-  .hitrow { border-bottom: 1px solid var(--line); padding: 9px 0; }
-  .hitrow:last-child { border-bottom: 0; }
-  .hitmeta { display: flex; gap: 10px; align-items: baseline; font: 11px var(--mono); color: var(--muted); }
-  .tag { background: var(--accent-soft); color: var(--accent); border-radius: 4px; padding: 1px 6px; }
-  .excerpt { font-size: 13px; color: var(--ink); margin-top: 4px; }
-  pre.evidence {
-    font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
-    margin: 0; color: var(--muted);
-  }
-  ol.plan { margin: 6px 0 0; padding-left: 22px; font-size: 14px; }
-  .meta { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
-  .spinner {
-    display: inline-block; width: 13px; height: 13px; vertical-align: -2px;
-    border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
-    animation: spin 0.7s linear infinite; margin-right: 7px;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
-  .history { display: flex; flex-direction: column; gap: 2px; }
-  .history button {
-    background: none; color: inherit; border: 0; padding: 5px 0; text-align: left;
-    font-weight: 400; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--line);
-  }
-  .history button:last-child { border-bottom: 0; }
-  .history button:hover { color: var(--accent); }
-  .history .h-arm { font: 11px var(--mono); color: var(--muted); margin-left: 8px; }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div class="wrap">
@@ -182,6 +64,7 @@
   </div>
 </div>
 
+<script src="render.js"></script>
 <script>
 (() => {
   "use strict";
@@ -200,28 +83,9 @@
   let arms = [];
   const history = [];
 
-  const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
-    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
-  ));
-
-  // The synthesis prompt does not ask for markdown, but the models emit it anyway, and
-  // literal `**` in an answer reads as a typo. Only the three inline forms that actually
-  // show up are handled — this is not a markdown parser, and it must never become one.
-  //
-  // Applied strictly after `escapeHtml`, so the only tags in the result are the ones
-  // these three rules put there. Reversing that order would make model output executable.
-  const renderInline = (escaped) => escaped
-    .replace(/`([^`\n]+)`/g, '<code>$1</code>')
-    .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
-    .replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>");
-
-  // `[paper:<id>]` is what the synthesizer's handles are rewritten back to before the
-  // answer is stored, so it is the form every arm's answer arrives in.
-  const renderAnswer = (text) =>
-    renderInline(escapeHtml(text)).replace(/\[paper:([^\]]+)\]/g,
-      (_, id) => `<span class="cite">${escapeHtml(id)}</span>`);
-
-  const fmtInt = (n) => n.toLocaleString();
+  // Rendering lives in render.js, shared with the public demo. Only the parts that
+  // talk to the server are here.
+  const { escapeHtml, renderResult } = window.RPSG;
 
   const armByName = (name) => arms.find((a) => a.name === name);
 
@@ -343,94 +207,8 @@
     });
   }
 
-  function card(title, inner, extraClass) {
-    return `<div class="card${extraClass ? " " + extraClass : ""}"><h2>${title}</h2>${inner}</div>`;
-  }
-
-  function renderTrajectory(t) {
-    const parts = [];
-    if (t.planner_failed) {
-      parts.push('<p class="error" style="margin-top:0">The planner failed — this degraded ' +
-                 "to a single retrieval on the original question.</p>");
-    }
-    const subs = t.sub_questions || [];
-    parts.push(`<p style="margin:0">Plan: ${subs.length} sub-question(s)</p>`);
-    if (subs.length) {
-      parts.push(`<ol class="plan">${subs.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>`);
-    }
-    if (t.plan_reasoning) {
-      parts.push(`<p class="hint">reasoning: ${escapeHtml(t.plan_reasoning)}</p>`);
-    }
-    if (t.graph_hints && t.graph_hints.length) {
-      parts.push(`<p class="hint">graph hints: ${escapeHtml(t.graph_hints.slice(0, 6).join(", "))}</p>`);
-    }
-    const bits = [
-      `retrievals used: ${t.retrievals_used || 0}`,
-      `refused: ${t.retrievals_refused || 0}`,
-      `anchor: ${t.anchor_used ? "on" : "off"}`,
-    ];
-    if (t.critique_ran) {
-      bits.push(`critique: ${(t.gaps || []).length} gap(s), ` +
-                `${(t.critique_added_papers || []).length} paper(s) added`);
-    } else {
-      bits.push("critique: disabled");
-    }
-    parts.push(`<div class="meta">${bits.map((b) => `<span>${escapeHtml(b)}</span>`).join("")}</div>`);
-    if (t.critique_assessment) {
-      parts.push(`<p class="hint">assessment: ${escapeHtml(t.critique_assessment)}</p>`);
-    }
-    return card("Trajectory", parts.join(""));
-  }
-
-  function renderUsage(rows, elapsed) {
-    const body = rows.length
-      ? `<table><thead><tr><th>model</th><th>calls</th><th>in</th><th>out</th><th>cached</th><th>cost</th></tr></thead><tbody>` +
-        rows.map((r) => `<tr><td>${escapeHtml(r.model)}</td><td class="num">${fmtInt(r.calls)}</td>` +
-          `<td class="num">${fmtInt(r.input_tokens)}</td><td class="num">${fmtInt(r.output_tokens)}</td>` +
-          `<td class="num">${fmtInt(r.cached_input_tokens)}</td>` +
-          // Not "$0.00": an unpriced model is unknown cost, not free.
-          `<td class="num">${r.cost_usd === null ? "n/a" : "$" + r.cost_usd.toFixed(4)}</td></tr>`).join("") +
-        "</tbody></table>"
-      : '<p class="hint" style="margin:0">No LLM calls — retrieval only.</p>';
-    const note = rows.some((r) => r.cost_usd === null)
-      ? '<p class="hint">cost "n/a": add rates under models.pricing in configs/settings.yaml.</p>'
-      : "";
-    return card("This question", body + note +
-      `<div class="meta"><span>${elapsed.toFixed(1)}s</span></div>`);
-  }
-
   function render(d) {
-    const out = [];
-
-    if (d.answer !== null) {
-      const papers = d.cited_paper_ids.length
-        ? `<ul class="papers">${d.cited_paper_ids.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>`
-        : '<p class="hint">The answer cited no paper.</p>';
-      out.push(card(`Answer — ${escapeHtml(d.arm)}`,
-        `<div class="answer">${renderAnswer(d.answer)}</div>` +
-        `<p class="hint" style="margin-bottom:0">grounded on ${d.cited_paper_ids.length} paper(s)</p>` +
-        papers));
-    }
-
-    if (d.trace && Object.keys(d.trace).length) out.push(renderTrajectory(d.trace));
-
-    if (d.hits.length) {
-      const rows = d.hits.map((h) =>
-        `<div class="hitrow"><div class="hitmeta">` +
-        `<span class="score">${h.score >= 0 ? "+" : ""}${h.score.toFixed(3)}</span>` +
-        `<span class="tag">${escapeHtml(h.section_type)}</span>` +
-        `<span>${escapeHtml(h.paper_id)}</span></div>` +
-        `<div class="excerpt">${escapeHtml(h.excerpt)}…</div></div>`).join("");
-      out.push(card(`Retrieved — ${d.hits.length} chunk(s)`, `<div class="scroll">${rows}</div>`));
-    }
-
-    if (d.evidence) {
-      out.push(card(`Evidence sent to the model — ${fmtInt(d.evidence.length)} chars`,
-        `<div class="scroll"><pre class="evidence">${escapeHtml(d.evidence)}</pre></div>`));
-    }
-
-    out.push(renderUsage(d.usage, d.elapsed_s));
-    el.results.innerHTML = out.join("");
+    el.results.innerHTML = renderResult(d);
   }
 
   el.ask.addEventListener("click", ask);

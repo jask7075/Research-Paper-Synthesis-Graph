@@ -248,8 +248,31 @@ An arm whose store is missing is offered as disabled, with the command that buil
 server is single-worker on purpose: the arms hold FAISS and Kuzu handles that are not shared
 across processes, and each worker would load its own copy of the embedder.
 
-There is no hosted demo. The page needs the Python process, a 34MB FAISS index, a 66MB Kuzu
-graph and an API key, so GitHub Pages cannot serve a working copy of it.
+### The public demo
+
+**<https://jask7075.github.io/Research-Paper-Synthesis-Graph/>** — no install, no key.
+
+The live page cannot be hosted: it needs the Python process, a 34MB FAISS index, a 66MB
+Kuzu graph and an API key, and GitHub Pages serves static files. So the public page replays
+runs instead of producing them. Pick one of eight gold questions, switch between four arms,
+and read the answer, the retrieved chunks, the agentic plan and the token bill each one
+produced.
+
+The recordings are real. `scripts/record_demo.py` drives the same `AskService` the live
+server calls, against the same index and graph, and saves each result as the exact JSON
+`/api/ask` returns — which is why the demo and the live app share one `render.js` and one
+`style.css`. A recording cannot show something the real system does not do.
+
+```bash
+python scripts/record_demo.py --dry-run     # what would run, spends nothing
+python scripts/record_demo.py               # re-record (32 runs, about $0.70)
+make demo                                   # assemble and serve it at :8001
+```
+
+The questions come from `eval/gold/queries.full34.jsonl`, the set the report scores, and
+span all four query types — including the ones the system handles least well. Picking
+questions after seeing which answers looked best would make it an advert rather than
+evidence, so the set was fixed first and every run recorded.
 
 ## Looking at the graph
 

@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
@@ -111,9 +111,13 @@ def create_app(service: AskService | None = None) -> FastAPI:
     if STATIC_DIR.is_dir():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+        # A redirect rather than serving index.html at "/": the page references
+        # `style.css` and `render.js` relatively, and it shares both with the static
+        # demo, which has no /static prefix to point at. Served from the mount, one set
+        # of relative paths works for both.
         @app.get("/")
-        def index() -> FileResponse:
-            return FileResponse(STATIC_DIR / "index.html")
+        def index() -> RedirectResponse:
+            return RedirectResponse("/static/index.html")
 
     return app
 
