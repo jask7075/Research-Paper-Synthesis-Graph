@@ -59,7 +59,15 @@ jobs:
             n=len(d['questions']); assert n, 'no questions recorded'; \
             print(f'{n} question(s), arms: {d[\"arms\"]}')"
 
+      # `enablement` creates the Pages site on first run, using this workflow's own
+      # `pages: write` token. Without it the first deploy fails with "Get Pages site
+      # failed ... verify that the repository has Pages enabled", because enabling it is
+      # a repository setting that nothing in the repo had performed yet. Doing it here
+      # means a fork, or this repo before anyone visits its settings page, publishes on
+      # the first push rather than failing once and waiting for a human.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
