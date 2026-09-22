@@ -269,6 +269,10 @@ python scripts/record_demo.py               # re-record (32 runs, about $0.70)
 make demo                                   # assemble and serve it at :8001
 ```
 
+Publishing it from a fork takes one manual step first: enable Pages under Settings ->
+Pages with the source set to GitHub Actions. The workflow reads that setting and cannot
+create it, because creating a Pages site needs admin access that no workflow token has.
+
 The questions come from `eval/gold/queries.full34.jsonl`, the set the report scores, and
 span all four query types — including the ones the system handles least well. Picking
 questions after seeing which answers looked best would make it an advert rather than
