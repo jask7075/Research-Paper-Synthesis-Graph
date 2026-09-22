@@ -1,7 +1,10 @@
-.PHONY: help install test lint typecheck fmt grobid clean
+.PHONY: help install install-web ui demo test lint typecheck fmt grobid clean
 
 help:
 	@echo "install    Install package + dev/vector extras (uv)"
+	@echo "install-web Add the web extras (FastAPI + uvicorn)"
+	@echo "ui         Serve the ask-a-question UI on :8000"
+	@echo "demo       Assemble the Pages demo and serve it on :8001"
 	@echo "test       Run the deterministic unit tests (no API keys needed)"
 	@echo "lint       Ruff lint"
 	@echo "fmt        Ruff format + import sort"
@@ -11,6 +14,22 @@ help:
 
 install:
 	uv pip install -e ".[dev,vector]"
+
+install-web:
+	uv pip install -e ".[web]"
+
+# Single-worker on purpose: the arms hold FAISS and Kuzu handles that are not shared
+# across processes, and each worker would load its own copy of the embedder.
+ui:
+	uvicorn rpsg.web.app:app --host 127.0.0.1 --port 8000 --workers 1
+
+# Assembled exactly as .github/workflows/pages.yml assembles it, so a local preview
+# and the published site are the same three-file bundle.
+demo:
+	rm -rf _site && mkdir -p _site
+	cp docs/demo/index.html docs/demo/recordings.json _site/
+	cp src/rpsg/web/static/style.css src/rpsg/web/static/render.js _site/
+	cd _site && python -m http.server 8001
 
 test:
 	pytest

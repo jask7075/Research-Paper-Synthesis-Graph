@@ -29,18 +29,16 @@ import argparse
 from rpsg.config import get_settings
 from rpsg.llm.usage import USAGE
 from rpsg.logging import get_logger
-from rpsg.retrieval.build import RETRIEVES_CHUNKS_UP_FRONT, SYSTEMS, build_system
+from rpsg.retrieval.build import (
+    NEEDS_GRAPH,
+    RETRIEVES_CHUNKS_UP_FRONT,
+    SYSTEMS,
+    build_system,
+    missing_store,
+)
 from rpsg.stores.embedder import HashEmbedder, SentenceTransformerEmbedder
 
 log = get_logger(__name__)
-
-#: Arms that read the vector index. Checked before building so a first-time user gets a
-#: "build the index" message instead of a bare faiss RuntimeError on a missing file.
-_NEEDS_VECTOR_INDEX = frozenset(SYSTEMS) - {"typed_graph"}
-_NEEDS_GRAPH = frozenset(
-    n for n in SYSTEMS if n.startswith(("typed_graph", "citation_graph", "agentic"))
-)
-
 
 def _print_trajectory(trace: dict) -> None:
     """The agentic arm's plan and what it cost. This is the arm's whole point, and an
@@ -104,7 +102,7 @@ def main() -> None:
             marks = []
             if name in RETRIEVES_CHUNKS_UP_FRONT:
                 marks.append("supports --retrieval-only")
-            if name in _NEEDS_GRAPH:
+            if name in NEEDS_GRAPH:
                 marks.append("needs the Kuzu graph")
             print(f"  {name:<24} {'; '.join(marks)}")
         return
@@ -126,18 +124,10 @@ def main() -> None:
         )
 
     # Checked explicitly: faiss.read_index raises a bare RuntimeError on a missing file,
-    # which is not a useful message to hand a first-time user.
-    if args.system in _NEEDS_VECTOR_INDEX and not settings.paths.vector_index.exists():
-        raise SystemExit(
-            f"no vector index at {settings.paths.vector_index}\n"
-            "Build one first:  python scripts/05_build_stores.py [--hash-embed]"
-        )
-    if args.system in _NEEDS_GRAPH and not settings.paths.kuzu_db.exists():
-        raise SystemExit(
-            f"no graph at {settings.paths.kuzu_db}\n"
-            f"{args.system!r} traverses the typed graph. Build it first:  "
-            "python scripts/05_build_stores.py"
-        )
+    # which is not a useful message to hand a first-time user. The rule itself lives in
+    # `build`, so the web UI refuses the same arms for the same reasons.
+    if (problem := missing_store(args.system)) is not None:
+        raise SystemExit(problem)
 
     embedder = (
         HashEmbedder(dim=settings.embeddings.dim)

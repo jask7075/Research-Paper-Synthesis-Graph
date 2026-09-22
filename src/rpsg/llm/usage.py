@@ -37,6 +37,21 @@ class ModelUsage:
         self.cached_input_tokens += cached_input_tokens
 
 
+def cost_usd(usage: ModelUsage, rate: dict[str, float] | None) -> float | None:
+    """Dollar cost of `usage` at `rate`, or None when no rate is configured.
+
+    The formula lives here rather than in each caller so the table `summary()` prints and
+    the per-question figure the web UI shows can never disagree. None is not zero: it
+    means "unpriced", and a caller that renders it as $0.00 is under-reporting spend.
+    """
+    if not rate:
+        return None
+    return (
+        usage.input_tokens / 1e6 * rate.get("input_per_mtok", 0.0)
+        + usage.output_tokens / 1e6 * rate.get("output_per_mtok", 0.0)
+    )
+
+
 @dataclass
 class UsageTracker:
     """Accumulates token counts per model across a process."""
@@ -78,17 +93,13 @@ class UsageTracker:
         ]
         total_cost, priced_all = 0.0, True
         for model, u in sorted(snap.items()):
-            rate = pricing.get(model)
-            if rate:
-                cost = (
-                    u.input_tokens / 1e6 * rate.get("input_per_mtok", 0.0)
-                    + u.output_tokens / 1e6 * rate.get("output_per_mtok", 0.0)
-                )
-                total_cost += cost
-                cost_str = f"${cost:,.2f}"
-            else:
+            cost = cost_usd(u, pricing.get(model))
+            if cost is None:
                 priced_all = False
                 cost_str = "n/a"
+            else:
+                total_cost += cost
+                cost_str = f"${cost:,.2f}"
             lines.append(
                 f"{model:22} {u.calls:>7,} {u.input_tokens:>11,} "
                 f"{u.output_tokens:>10,} {u.cached_input_tokens:>9,} {cost_str:>10}"
